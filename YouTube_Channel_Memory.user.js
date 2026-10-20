@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Channel Memory
 // @namespace    YouTubeChannelMemory
-// @version      1.2.43
+// @version      1.2.44
 // @description  Per-channel playback speed and subtitle preferences, with audio boost, real-time duration display, start-paused, fullscreen on play / auto-exit near the end, bottom progress bar, hide live chat, and custom language editor.
 // @author       bgtsai
 // @match        https://www.youtube.com/*
@@ -122,6 +122,8 @@
             sectionPlayback:         'Playback',
             sectionDisplay:          'Display',
             sectionAutomation:       'Automation',
+            sectionSpeedButtons:     'Speed Buttons',
+            sectionLanguage:         'Language',
 
             // Settings panel — row labels
             labelDefaultSpeed:       'Default Speed',
@@ -129,10 +131,8 @@
             labelAudioBoost:         'Audio Boost',
             labelAudioBoostSub:      '1 = disabled',
             labelShowRelTime:        'Show Relative Time',
-            labelColorSelected:      'Speed Button — Current',
-            labelColorSelectedSub:   'The speed now playing',
-            labelColorNormal:        'Speed Button — Others',
-            labelColorNormalSub:     'All other speed buttons',
+            labelColorSelected:      'Current Speed (text buttons)',
+            labelColorNormal:        'Other Speeds (text buttons)',
             labelStartPaused:        'Start New Videos Paused',
             labelStartPausedSub:     'Playlists and autoplay-next keep playing',
             labelFsProgress:         'Bottom Progress Bar',
@@ -242,6 +242,8 @@
             sectionPlayback:         '播放',
             sectionDisplay:          '顯示',
             sectionAutomation:       '自動化',
+            sectionSpeedButtons:     '速度按鈕',
+            sectionLanguage:         '語言',
 
             // 設定面板 — 欄位標籤
             labelDefaultSpeed:       '預設速度',
@@ -249,10 +251,8 @@
             labelAudioBoost:         '音量增強',
             labelAudioBoostSub:      '1 = 停用',
             labelShowRelTime:        '顯示實際時間',
-            labelColorSelected:      '速度按鈕 — 目前倍速',
-            labelColorSelectedSub:   '正在播放的倍速',
-            labelColorNormal:        '速度按鈕 — 其他倍速',
-            labelColorNormalSub:     '其餘倍速按鈕',
+            labelColorSelected:      '目前倍速（文字按鈕）',
+            labelColorNormal:        '其他倍速（文字按鈕）',
             labelStartPaused:        '開啟新影片時先暫停',
             labelStartPausedSub:     '播放清單與自動播放下一部不受影響',
             labelFsProgress:         '底部細進度條',
@@ -828,6 +828,15 @@
                 transition: background 0.12s;
             }
             #ysc-settings-panel .ysc-row:hover { background: ${t.rowHover}; }
+            #ysc-settings-panel .ysc-cols { display: flex; gap: 12px; padding: 12px 12px 0; align-items: flex-start; }
+            #ysc-settings-panel .ysc-col  { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+            #ysc-settings-panel.ysc-one-col .ysc-cols { flex-direction: column; align-items: stretch; }
+            #ysc-settings-panel .ysc-card {
+                border-radius: 10px; padding: 2px 0 6px; overflow: hidden;
+                background: ${isDark ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.025)'};
+                border: 1px solid ${t.rowBorder};
+            }
+            #ysc-settings-panel .ysc-card .ysc-row:last-child::after { display: none; }
             #ysc-settings-panel .ysc-row::after {
                 content: ''; position: absolute; bottom: 0; left: 16px; right: 16px;
                 height: 1px; background: ${t.rowBorder};
@@ -1209,7 +1218,7 @@
             #ysc-cl-confirm-dialog .cld-btn-confirm { background: #cc0000; color: #fff; }
             /* Danger zone */
             #ysc-settings-panel .ysc-danger-zone {
-                margin: 8px 16px 12px;
+                margin: 12px 12px 12px;
                 border: 1px solid ${isDark ? 'rgba(180,40,40,0.35)' : 'rgba(180,40,40,0.25)'};
                 border-radius: 8px;
                 padding: 10px 12px;
@@ -1503,7 +1512,10 @@
               <button class="ysc-close">✕</button>
             </div>
             <div class="ysc-body">
+             <div class="ysc-cols">
+              <div class="ysc-col">
 
+              <section class="ysc-card">
               <div class="ysc-group">${LANG.sectionPlayback}</div>
               <div class="ysc-row">
                 <div class="ysc-lbl">${LANG.labelDefaultSpeed}<small>${LANG.labelDefaultSpeedSub}</small></div>
@@ -1517,7 +1529,35 @@
                 <div class="ysc-lbl">${LANG.labelStartPaused}<small>${LANG.labelStartPausedSub}</small></div>
                 <div class="ysc-toggle${cur['START_PAUSED'] ? ' on' : ''}" id="ysc-tg-startpaused"></div>
               </div>
-              <div class="ysc-sep"></div>
+              </section>
+
+              <section class="ysc-card">
+              <div class="ysc-group">${LANG.sectionSpeedButtons}</div>
+              <div class="ysc-row">
+                <div class="ysc-lbl">${LANG.labelButtonTemplates}</div>
+                <button class="ysc-edit-btn" id="ysc-edit-btns">${LANG.labelBtnEdit}</button>
+              </div>
+              <div class="ysc-row">
+                <div class="ysc-lbl">${LANG.labelColorSelected}</div>
+                <div class="ysc-color-row" id="ysc-color-sel-row">
+                  <span class="ysc-color-text" id="ysc-color-sel-txt"></span>
+                  <span class="ysc-swatch" id="ysc-color-sel-swatch"></span>
+                </div>
+              </div>
+              <div class="ysc-row">
+                <div class="ysc-lbl">${LANG.labelColorNormal}</div>
+                <div class="ysc-color-row" id="ysc-color-nor-row">
+                  <span class="ysc-color-text" id="ysc-color-nor-txt"></span>
+                  <span class="ysc-swatch" id="ysc-color-nor-swatch"></span>
+                </div>
+              </div>
+              </section>
+
+
+              </div>
+              <div class="ysc-col">
+
+              <section class="ysc-card">
               <div class="ysc-group">${LANG.sectionDisplay}</div>
               <div class="ysc-row">
                 <div class="ysc-lbl">${LANG.labelShowRelTime}</div>
@@ -1531,22 +1571,9 @@
                 <div class="ysc-lbl">${LANG.labelHideChat}</div>
                 <div class="ysc-toggle${cur['HIDE_LIVE_CHAT'] ? ' on' : ''}" id="ysc-tg-hidechat"></div>
               </div>
-              <div class="ysc-row">
-                <div class="ysc-lbl">${LANG.labelColorSelected}<small>${LANG.labelColorSelectedSub}</small></div>
-                <div class="ysc-color-row" id="ysc-color-sel-row">
-                  <span class="ysc-color-text" id="ysc-color-sel-txt"></span>
-                  <span class="ysc-swatch" id="ysc-color-sel-swatch"></span>
-                </div>
-              </div>
-              <div class="ysc-row">
-                <div class="ysc-lbl">${LANG.labelColorNormal}<small>${LANG.labelColorNormalSub}</small></div>
-                <div class="ysc-color-row" id="ysc-color-nor-row">
-                  <span class="ysc-color-text" id="ysc-color-nor-txt"></span>
-                  <span class="ysc-swatch" id="ysc-color-nor-swatch"></span>
-                </div>
-              </div>
+              </section>
 
-              <div class="ysc-sep"></div>
+              <section class="ysc-card">
               <div class="ysc-group">${LANG.sectionAutomation}</div>
               <div class="ysc-note" id="ysc-fs-note"><span id="ysc-fs-note-txt"></span> <a class="ysc-help-link" id="ysc-fs-help" href="#">${LANG.labelAutoFullscreenLink}</a></div>
               <div class="ysc-row">
@@ -1557,16 +1584,11 @@
                 <div class="ysc-lbl">${LANG.labelAutoFullscreenOnEnd}</div>
                 <div class="ysc-toggle${cur['FULLSCREEN_ON_END'] ? ' on' : ''}" id="ysc-tg-fsend"></div>
               </div>
+              </section>
 
-              <div class="ysc-sep"></div>
-              <div class="ysc-row">
-                <div class="ysc-lbl">${LANG.labelButtonTemplates}</div>
-                <div style="display:flex;align-items:center;gap:8px;">
-                  <button class="ysc-edit-btn" id="ysc-edit-btns">${LANG.labelBtnEdit}</button>
-                  <div style="width:38px;flex-shrink:0;visibility:hidden;" class="ysc-toggle"></div>
-                </div>
-              </div>
 
+              <section class="ysc-card">
+              <div class="ysc-group">${LANG.sectionLanguage}</div>
               <div class="ysc-row">
                 <div class="ysc-lbl">${LANG.labelCustomLang}<small>${LANG.labelCustomLangSub}</small></div>
                 <div style="display:flex;align-items:center;gap:8px;">
@@ -1574,6 +1596,10 @@
                   <div class="ysc-toggle${cur['USE_CUSTOM_LANG'] ? ' on' : ''}" id="ysc-toggle-cl"></div>
                 </div>
               </div>
+              </section>
+
+              </div>
+             </div>
 
               <div class="ysc-danger-zone">
                 <div class="ysc-danger-label">${LANG.dangerZoneLabel}</div>
@@ -1646,7 +1672,15 @@
         }
         const { panelW, colorRowW, speedInputW } = _panelMeasureCache;
 
-        document.getElementById('ysc-settings-panel').style.width = panelW + 'px';
+        // Two columns (each as wide as the old single-column panel) when the
+        // viewport allows it; otherwise fall back to a single column.
+        {
+            const panelEl = document.getElementById('ysc-settings-panel');
+            const twoColW = 2 * panelW + 12 * 3;
+            const twoCol  = window.innerWidth >= twoColW + 32;
+            panelEl.classList.toggle('ysc-one-col', !twoCol);
+            panelEl.style.width = (twoCol ? twoColW : panelW + 24) + 'px';
+        }
 
         // Lock each color-row to the same computed width.
         document.querySelectorAll('.ysc-color-row').forEach(el => {
