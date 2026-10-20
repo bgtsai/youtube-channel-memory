@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Channel Memory
 // @namespace    YouTubeChannelMemory
-// @version      1.2.42
+// @version      1.2.43
 // @description  Per-channel playback speed and subtitle preferences, with audio boost, real-time duration display, start-paused, fullscreen on play / auto-exit near the end, bottom progress bar, hide live chat, and custom language editor.
 // @author       bgtsai
 // @match        https://www.youtube.com/*
@@ -129,8 +129,10 @@
             labelAudioBoost:         'Audio Boost',
             labelAudioBoostSub:      '1 = disabled',
             labelShowRelTime:        'Show Relative Time',
-            labelColorSelected:      'Color — Selected',
-            labelColorNormal:        'Color — Normal',
+            labelColorSelected:      'Speed Button — Current',
+            labelColorSelectedSub:   'The speed now playing',
+            labelColorNormal:        'Speed Button — Others',
+            labelColorNormalSub:     'All other speed buttons',
             labelStartPaused:        'Start New Videos Paused',
             labelStartPausedSub:     'Playlists and autoplay-next keep playing',
             labelFsProgress:         'Bottom Progress Bar',
@@ -247,8 +249,10 @@
             labelAudioBoost:         '音量增強',
             labelAudioBoostSub:      '1 = 停用',
             labelShowRelTime:        '顯示實際時間',
-            labelColorSelected:      '顏色 — 已選取',
-            labelColorNormal:        '顏色 — 一般',
+            labelColorSelected:      '速度按鈕 — 目前倍速',
+            labelColorSelectedSub:   '正在播放的倍速',
+            labelColorNormal:        '速度按鈕 — 其他倍速',
+            labelColorNormalSub:     '其餘倍速按鈕',
             labelStartPaused:        '開啟新影片時先暫停',
             labelStartPausedSub:     '播放清單與自動播放下一部不受影響',
             labelFsProgress:         '底部細進度條',
@@ -832,19 +836,25 @@
             #ysc-settings-panel .ysc-row:has(+ .ysc-danger-zone)::after { display: none; }
             #ysc-settings-panel .ysc-lbl { font-size: 17px; color: ${t.lbl}; }
             #ysc-settings-panel .ysc-lbl small { display: block; font-size: 16px; color: ${t.lblSub}; margin-top: 1px; }
-            #ysc-settings-panel .ysc-help-link { color: inherit; opacity: 0.7; }
+            #ysc-settings-panel .ysc-help-link { color: ${isDark ? '#3ea6ff' : '#065fd4'}; font-weight: 600; text-decoration: underline; }
             #ysc-settings-panel .ysc-note.ysc-warn {
                 margin: 2px 16px 10px; padding: 8px 10px; border-radius: 6px; line-height: 1.5;
                 border-left: 3px solid #f5a623; font-weight: 600;
                 background: ${isDark ? 'rgba(245,166,35,0.14)' : 'rgba(245,166,35,0.12)'};
                 color: ${isDark ? '#ffc861' : '#8a5300'};
             }
-            #ysc-settings-panel .ysc-note.ysc-warn .ysc-help-link { opacity: 1; text-decoration: underline; }
-            #ysc-settings-panel .ysc-help-link:hover { opacity: 1; }
+            #ysc-settings-panel .ysc-help-link:hover { filter: brightness(1.15); }
             #ysc-cl-confirm-dialog .cld-rich p { margin: 0 0 8px; }
             #ysc-cl-confirm-dialog .cld-rich ul { margin: 0; padding-left: 18px; }
             #ysc-cl-confirm-dialog .cld-rich li { margin-bottom: 4px; }
-            #ysc-cl-confirm-dialog .cld-rich code { font-size: 16px; overflow-wrap: anywhere; }
+            #ysc-cl-confirm-dialog .cld-body.cld-rich { color: ${t.lbl}; }
+            #ysc-cl-confirm-dialog .cld-rich code {
+                font-size: 16px; overflow-wrap: anywhere; font-family: Consolas, 'Courier New', monospace;
+                padding: 1px 6px; border-radius: 4px; font-weight: 600;
+                color: ${isDark ? '#ffc861' : '#9a5b00'};
+                background: ${isDark ? 'rgba(255,200,97,0.12)' : 'rgba(245,166,35,0.14)'};
+            }
+            #ysc-cl-confirm-dialog .cld-rich b { color: ${t.title}; }
             #ysc-settings-panel .ysc-note {
                 padding: 2px 16px 8px; font-size: 16px; color: ${t.lblSub};
             }
@@ -1522,14 +1532,14 @@
                 <div class="ysc-toggle${cur['HIDE_LIVE_CHAT'] ? ' on' : ''}" id="ysc-tg-hidechat"></div>
               </div>
               <div class="ysc-row">
-                <div class="ysc-lbl">${LANG.labelColorSelected}</div>
+                <div class="ysc-lbl">${LANG.labelColorSelected}<small>${LANG.labelColorSelectedSub}</small></div>
                 <div class="ysc-color-row" id="ysc-color-sel-row">
                   <span class="ysc-color-text" id="ysc-color-sel-txt"></span>
                   <span class="ysc-swatch" id="ysc-color-sel-swatch"></span>
                 </div>
               </div>
               <div class="ysc-row">
-                <div class="ysc-lbl">${LANG.labelColorNormal}</div>
+                <div class="ysc-lbl">${LANG.labelColorNormal}<small>${LANG.labelColorNormalSub}</small></div>
                 <div class="ysc-color-row" id="ysc-color-nor-row">
                   <span class="ysc-color-text" id="ysc-color-nor-txt"></span>
                   <span class="ysc-swatch" id="ysc-color-nor-swatch"></span>
