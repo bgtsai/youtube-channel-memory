@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Channel Memory
 // @namespace    YouTubeChannelMemory
-// @version      1.2.49
+// @version      1.2.50
 // @description  Per-channel playback speed and subtitle preferences, with audio boost, real-time duration display, start-paused, fullscreen on play / auto-exit near the end, bottom progress bar, hide live chat, and custom language editor.
 // @author       bgtsai
 // @match        https://www.youtube.com/*
@@ -3500,13 +3500,8 @@
         .ytp-big-mode [id^="ycm-bar"] { --ycm-s: 1.5; }
         [id^="ycm-bar"] .ycm-ico { width: calc(24px * var(--ycm-s)); height: calc(24px * var(--ycm-s)); display: block; flex-shrink: 0; cursor: pointer; overflow: visible; }
         [id^="ycm-bar"] [ycm-btn="bookmark"] { display: inline-flex; margin-right: 10px; cursor: pointer; }
-        [id^="ycm-bar"] [ycm-btn="bookmark"] .ycm-bm-fill { opacity: 0; }
-        [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-bm="saved"] .ycm-bm-fill,
-        [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-anim] .ycm-bm-fill { opacity: 1; }
-        [id^="ycm-bar"] [ycm-btn="bookmark"] .ycm-bm-dot { display: none; }
-        [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-dirty] .ycm-bm-dot { display: inline; }
-        [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-anim] .ycm-bm-clip { animation: ycm-bm-rise .25s ease-out both; }
-        [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-anim] svg { animation: ycm-bm-pulse .2s ease-out .25s; transform-origin: 50% 60%; }
+        [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-bm="anim"] .ycm-bm-clip { animation: ycm-bm-rise .25s ease-out both; }
+        [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-bm="anim"] svg { animation: ycm-bm-pulse .2s ease-out .25s; transform-origin: 50% 60%; }
         @keyframes ycm-bm-rise  { from { transform: translateY(24px); } to { transform: translateY(0); } }
         @keyframes ycm-bm-pulse { 50% { transform: scale(1.15); } }
         [id^="ycm-bar"] .ycm-ccgroup { display: inline-flex; align-items: center; gap: calc(4px * var(--ycm-s));
@@ -3746,13 +3741,11 @@
         console.log('YSC: saved captions', ccOn);
         barEl.setAttribute('ycm-cc-saved', ccOn ? 'on' : 'off');
 
-        // Feedback: fill-up + pulse animation, then a short "saved" tooltip.
-        btnEl.removeAttribute('ycm-anim');
-        _setBookmarkDirty(btnEl, false);
-        void btnEl.getBoundingClientRect();
-        btnEl.setAttribute('ycm-anim', '');
+        // Feedback: swap in the animation icon (fill-up + pulse), then back to
+        // the regular state icon and a short "saved" tooltip.
+        _showBookmarkIcon(btnEl, 'anim');
         setTimeout(() => {
-            btnEl.removeAttribute('ycm-anim');
+            _showBookmarkIcon(btnEl, null);   // let updateBookmarkState pick the state again
             syncCCVisuals(slot);
             _ttFlash(btnEl, LANG.playerSavedToast
                 .replace('{speed}', _speedLabel(rate))
@@ -4012,9 +4005,8 @@
         // Bookmark: saves current speed + captions; shows saved / changed state.
         const bookmark = document.createElement('span');
         bookmark.setAttribute('ycm-btn', 'bookmark');
-        bookmark.setAttribute('ycm-bm', 'none');
         bookmark.setAttribute('data-tooltip', LANG.playerSetTitle);
-        bookmark.appendChild(_buildBookmarkSVG(id));
+        _showBookmarkIcon(bookmark, 'none');
         bookmark.addEventListener('click', saveChannelDefaults);
         box.appendChild(bookmark);
         _ttBind(bookmark);
@@ -4024,7 +4016,6 @@
         group.className = 'ycm-ccgroup';
         const pill = document.createElement('div');
         pill.setAttribute('ycm-btn', 'cc-pill');
-        pill.appendChild(_buildPillSVG());
         pill.addEventListener('click', () => onCaptionPillClick(id, pill));
         _ttBind(pill);
         const ccBtn = document.createElement('div');
@@ -4062,48 +4053,66 @@
     /** Bookmark path on a 24-unit canvas (8 units wide body). */
     const _BOOKMARK_D = 'M8 3.5h8a1.5 1.5 0 0 1 1.5 1.5v15.5l-5.5-4.2-5.5 4.2V5A1.5 1.5 0 0 1 8 3.5z';
 
-    /** Bookmark icon: outline, fill (clipped for the save animation) and change dot. */
-    function _buildBookmarkSVG(id) {
+    /**
+     * Each state of the bookmark and the pill is one complete, fixed SVG, and
+     * a state change swaps the whole icon. (An earlier single SVG that toggled
+     * layers and a mask left a notch behind when Chrome skipped the repaint.)
+     */
+    const _BOOKMARK_ICONS = {
+        none:    () => [_svgEl('path', { d: _BOOKMARK_D, fill: 'none', stroke: '#fff', 'stroke-width': 2, 'stroke-linejoin': 'round' })],
+        saved:   () => [_svgEl('path', { d: _BOOKMARK_D, fill: '#fff' })],
+        // Red dot separated from the bookmark by a transparent gap (a fixed mask
+        // baked into this icon), so it reads cleanly on dark and light frames.
+        changed: () => {
+            const mask = _svgEl('mask', { id: 'ycm-bm-gap', maskUnits: 'userSpaceOnUse', x: 0, y: 0, width: 24, height: 24 });
+            mask.append(_svgEl('rect', { width: 24, height: 24, fill: '#fff' }),
+                        _svgEl('circle', { cx: 18, cy: 5, r: 5, fill: '#000' }));
+            const defs = _svgEl('defs'); defs.appendChild(mask);
+            return [defs,
+                    _svgEl('path', { d: _BOOKMARK_D, fill: '#fff', mask: 'url(#ycm-bm-gap)' }),
+                    _svgEl('circle', { cx: 18, cy: 5, r: 3, fill: '#ff4e45' })];
+        },
+        // Save animation: outline + a fill whose clip rect rises (CSS keyframes).
+        anim: () => {
+            const clip = _svgEl('clipPath', { id: 'ycm-bm-rise' });
+            clip.appendChild(_svgEl('rect', { class: 'ycm-bm-clip', width: 24, height: 24 }));
+            const defs = _svgEl('defs'); defs.appendChild(clip);
+            return [defs,
+                    _svgEl('path', { d: _BOOKMARK_D, fill: 'none', stroke: '#fff', 'stroke-width': 2, 'stroke-linejoin': 'round' }),
+                    _svgEl('path', { d: _BOOKMARK_D, fill: '#fff', 'clip-path': 'url(#ycm-bm-rise)' })];
+        },
+    };
+
+    const _PILL_ICONS = {
+        on:   () => [_svgEl('rect', { width: 28, height: 16, rx: 8, fill: 'rgba(255,255,255,.3)' }),
+                     _svgEl('circle', { cx: 20, cy: 8, r: 6, fill: '#fff' }),
+                     _svgEl('circle', { cx: 20, cy: 8, r: 2.5, fill: '#f00' })],
+        off:  () => [_svgEl('rect', { width: 28, height: 16, rx: 8, fill: 'rgba(255,255,255,.3)' }),
+                     _svgEl('circle', { cx: 8, cy: 8, r: 6, fill: '#fff' })],
+        none: () => [_svgEl('rect', { width: 28, height: 16, rx: 8, fill: 'rgba(255,255,255,.14)' }),
+                     _svgEl('circle', { cx: 14, cy: 8, r: 4.5, fill: 'none', stroke: 'rgba(255,255,255,.55)', 'stroke-width': 2 })],
+    };
+
+    /**
+     * Puts the icon for `state` into the bookmark (no-op if already shown).
+     * state null only clears the marker so the next updateBookmarkState redraws.
+     */
+    function _showBookmarkIcon(bm, state) {
+        if (state === null) { bm.removeAttribute('ycm-bm'); return; }
+        if (bm.getAttribute('ycm-bm') === state) return;
         const svg = _svgEl('svg', { viewBox: '0 0 24 24', class: 'ycm-ico' });
-        const clipId = 'ycm-bm-clip-' + id;
-        const defs = _svgEl('defs');
-        const clip = _svgEl('clipPath', { id: clipId });
-        clip.appendChild(_svgEl('rect', { class: 'ycm-bm-clip', x: 0, y: 0, width: 24, height: 24 }));
-        // The change dot is separated from the bookmark by a transparent gap
-        // (a hole cut out of the bookmark), not by a dark ring, so it looks
-        // clean on both dark and light video frames.
-        const maskId = 'ycm-bm-mask-' + id;
-        const mask = _svgEl('mask', { id: maskId, maskUnits: 'userSpaceOnUse', x: 0, y: 0, width: 24, height: 24 });
-        mask.append(
-            _svgEl('rect', { x: 0, y: 0, width: 24, height: 24, fill: '#fff' }),
-            _svgEl('circle', { cx: 18, cy: 5, r: 5, fill: '#000' })
-        );
-        defs.append(clip, mask);
-        // The mask is attached only while the dot is shown (see
-        // _setBookmarkDirty): toggling content *inside* a <mask> with CSS is
-        // not repainted reliably in Chrome, leaving a notch after the dot hides.
-        const body = _svgEl('g', { class: 'ycm-bm-body', 'data-mask': 'url(#' + maskId + ')' });
-        body.append(
-            _svgEl('path', { d: _BOOKMARK_D, fill: 'none', stroke: '#fff', 'stroke-width': 2, 'stroke-linejoin': 'round' }),
-            _svgEl('path', { d: _BOOKMARK_D, fill: '#fff', class: 'ycm-bm-fill', 'clip-path': 'url(#' + clipId + ')' })
-        );
-        svg.append(
-            defs,
-            body,
-            _svgEl('circle', { cx: 18, cy: 5, r: 3, fill: '#ff4e45', class: 'ycm-bm-dot' })
-        );
-        return svg;
+        svg.append(..._BOOKMARK_ICONS[state]());
+        bm.replaceChildren(svg);
+        bm.setAttribute('ycm-bm', state);
     }
 
-    /** Pill switch: track, knob and the red "on" dot (states set by _renderCaptionWidgets). */
-    function _buildPillSVG() {
+    /** Puts the icon for `state` ('on' | 'off' | 'none') into the pill. */
+    function _showPillIcon(pill, state) {
+        if (pill.getAttribute('ycm-pill') === state) return;
         const svg = _svgEl('svg', { viewBox: '0 0 28 16' });
-        svg.append(
-            _svgEl('rect', { class: 'ycm-pill-track', x: 0, y: 0, width: 28, height: 16, rx: 8 }),
-            _svgEl('circle', { class: 'ycm-pill-knob', cy: 8 }),
-            _svgEl('circle', { class: 'ycm-pill-dot', cx: 20, cy: 8, r: 2.5, fill: '#f00' })
-        );
-        return svg;
+        svg.append(..._PILL_ICONS[state]());
+        pill.replaceChildren(svg);
+        pill.setAttribute('ycm-pill', state);
     }
 
     /** Sliders ("tune") icon used for the settings entry. */
@@ -4151,26 +4160,15 @@
 
         // Pill: saved default for this channel.
         const saved = barEl.getAttribute('ycm-cc-saved');     // 'on' | 'off' | null
-        const track = pill.querySelector('.ycm-pill-track');
-        const knob  = pill.querySelector('.ycm-pill-knob');
-        const dot   = pill.querySelector('.ycm-pill-dot');
-        track.setAttribute('fill', saved === null ? 'rgba(255,255,255,.14)' : 'rgba(255,255,255,.3)');
-        if (saved === null) {
-            knob.setAttribute('cx', 14); knob.setAttribute('r', 4.5);
-            knob.setAttribute('fill', 'none'); knob.setAttribute('stroke', 'rgba(255,255,255,.55)'); knob.setAttribute('stroke-width', 2);
-        } else {
-            knob.setAttribute('cx', saved === 'on' ? 20 : 8); knob.setAttribute('r', 6);
-            knob.setAttribute('fill', '#fff'); knob.removeAttribute('stroke'); knob.removeAttribute('stroke-width');
-        }
-        dot.style.display = saved === 'on' ? '' : 'none';
+        _showPillIcon(pill, saved === null ? 'none' : saved);
         const stateText = saved === 'on' ? LANG.playerCCStateOn : saved === 'off' ? LANG.playerCCStateOff : LANG.playerCCStateNone;
         pill.setAttribute('data-tooltip', LANG.playerPillTitle.replace('{cc}', stateText));
     }
 
     /**
      * Updates the bookmark: hollow when no speed is saved for the channel,
-     * filled when it is, plus a red dot when the user's current speed or
-     * captions differ from what is saved. A video without captions does not
+     * filled when it is, and the filled-with-red-dot icon when the user's
+     * current speed or captions differ from what is saved. A video without captions does not
      * count as a caption difference (the user cannot turn them on), and the
      * caption check waits while the auto-apply controller is still working.
      *
@@ -4191,21 +4189,10 @@
             const native = getPlayerSubtitleBtn(id);
             if (_ccAvailable(native) && (native.attr('aria-pressed') === 'true') !== (savedCC === 'on')) dirty = true;
         }
-        bm.setAttribute('ycm-bm', savedSpeed !== null ? 'saved' : 'none');
-        _setBookmarkDirty(bm, dirty && !bm.hasAttribute('ycm-anim'));
+        if (bm.getAttribute('ycm-bm') === 'anim') return;   // the save animation restores the state itself
+        _showBookmarkIcon(bm, savedSpeed === null ? 'none' : (dirty ? 'changed' : 'saved'));
     }
 
-    /**
-     * Shows / hides the change dot and attaches / detaches the gap mask on the
-     * bookmark body in the same step, so the cut-out never outlives the dot.
-     */
-    function _setBookmarkDirty(bm, dirty) {
-        bm.toggleAttribute('ycm-dirty', dirty);
-        const body = bm.querySelector('.ycm-bm-body');
-        if (!body) return;
-        if (dirty) body.setAttribute('mask', body.getAttribute('data-mask'));
-        else body.removeAttribute('mask');
-    }
 
     /**
      * Rebuilds all ycm-bars currently in the page, preserving the
