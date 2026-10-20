@@ -1,4 +1,4 @@
-<a href="README.md"><img src="docs/img/lang-en-link.svg" alt="English" height="32"></a> <a href="README.zh-TW.md"><img src="docs/img/lang-zh-TW-active.svg" alt="繁體中文" height="32"></a>
+[Switch to English](README.md)
 
 # YouTube 頻道記憶
 
@@ -59,6 +59,8 @@
 <img src="docs/img/tune.svg" width="28" align="absmiddle"> 打開設定面板（也可以從 Tampermonkey 選單 → **設定** 進入）。
 
 ## 設定項目
+
+<p align="center"><img src="docs/img/settings-panel-zh-TW.png" alt="設定面板" width="720"></p>
 
 | 區塊 | 項目 | 作用 |
 |---|---|---|

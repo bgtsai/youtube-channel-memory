@@ -1,4 +1,4 @@
-<a href="README.md"><img src="docs/img/lang-en-active.svg" alt="English" height="32"></a> <a href="README.zh-TW.md"><img src="docs/img/lang-zh-TW-link.svg" alt="繁體中文" height="32"></a>
+[切換中文](README.zh-TW.md)
 
 # YouTube Channel Memory
 
@@ -59,6 +59,8 @@ The rounded group holds two separate controls:
 <img src="docs/img/tune.svg" width="28" align="absmiddle"> opens the settings panel (also available from the Tampermonkey menu → **Settings**).
 
 ## Settings
+
+<p align="center"><img src="docs/img/settings-panel-en.png" alt="Settings panel" width="720"></p>
 
 | Section | Option | What it does |
 |---|---|---|

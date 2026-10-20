@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Channel Memory
 // @namespace    YouTubeChannelMemory
-// @version      1.2.47
+// @version      1.2.48
 // @description  Per-channel playback speed and subtitle preferences, with audio boost, real-time duration display, start-paused, fullscreen on play / auto-exit near the end, bottom progress bar, hide live chat, and custom language editor.
 // @author       bgtsai
 // @match        https://www.youtube.com/*
@@ -3503,9 +3503,12 @@
         [id^="ycm-bar"] [ycm-btn="bookmark"] .ycm-bm-fill { opacity: 0; }
         [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-bm="saved"] .ycm-bm-fill,
         [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-anim] .ycm-bm-fill { opacity: 1; }
-        [id^="ycm-bar"] [ycm-btn="bookmark"] .ycm-bm-dot { display: none; }
-        [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-dirty] .ycm-bm-dot { display: inline; }
-        [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-anim] .ycm-bm-dot { display: none; }
+        [id^="ycm-bar"] [ycm-btn="bookmark"] .ycm-bm-dot,
+        [id^="ycm-bar"] [ycm-btn="bookmark"] .ycm-bm-gap { display: none; }
+        [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-dirty] .ycm-bm-dot,
+        [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-dirty] .ycm-bm-gap { display: inline; }
+        [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-anim] .ycm-bm-dot,
+        [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-anim] .ycm-bm-gap { display: none; }
         [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-anim] .ycm-bm-clip { animation: ycm-bm-rise .25s ease-out both; }
         [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-anim] svg { animation: ycm-bm-pulse .2s ease-out .25s; transform-origin: 50% 60%; }
         @keyframes ycm-bm-rise  { from { transform: translateY(24px); } to { transform: translateY(0); } }
@@ -4069,12 +4072,25 @@
         const defs = _svgEl('defs');
         const clip = _svgEl('clipPath', { id: clipId });
         clip.appendChild(_svgEl('rect', { class: 'ycm-bm-clip', x: 0, y: 0, width: 24, height: 24 }));
-        defs.appendChild(clip);
+        // The change dot is separated from the bookmark by a transparent gap
+        // (a hole cut out of the bookmark), not by a dark ring, so it looks
+        // clean on both dark and light video frames.
+        const maskId = 'ycm-bm-mask-' + id;
+        const mask = _svgEl('mask', { id: maskId, maskUnits: 'userSpaceOnUse', x: 0, y: 0, width: 24, height: 24 });
+        mask.append(
+            _svgEl('rect', { x: 0, y: 0, width: 24, height: 24, fill: '#fff' }),
+            _svgEl('circle', { cx: 18, cy: 5, r: 5, fill: '#000', class: 'ycm-bm-gap' })
+        );
+        defs.append(clip, mask);
+        const body = _svgEl('g', { mask: 'url(#' + maskId + ')' });
+        body.append(
+            _svgEl('path', { d: _BOOKMARK_D, fill: 'none', stroke: '#fff', 'stroke-width': 2, 'stroke-linejoin': 'round' }),
+            _svgEl('path', { d: _BOOKMARK_D, fill: '#fff', class: 'ycm-bm-fill', 'clip-path': 'url(#' + clipId + ')' })
+        );
         svg.append(
             defs,
-            _svgEl('path', { d: _BOOKMARK_D, fill: 'none', stroke: '#fff', 'stroke-width': 2, 'stroke-linejoin': 'round' }),
-            _svgEl('path', { d: _BOOKMARK_D, fill: '#fff', class: 'ycm-bm-fill', 'clip-path': 'url(#' + clipId + ')' }),
-            _svgEl('circle', { cx: 18, cy: 5, r: 3, fill: '#ff4e45', stroke: 'rgba(0,0,0,.6)', 'stroke-width': 2, class: 'ycm-bm-dot' })
+            body,
+            _svgEl('circle', { cx: 18, cy: 5, r: 3, fill: '#ff4e45', class: 'ycm-bm-dot' })
         );
         return svg;
     }
