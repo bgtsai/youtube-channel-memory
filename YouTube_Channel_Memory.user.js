@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         YouTube Channel Memory
 // @namespace    YouTubeChannelMemory
-// @version      1.2.41
-// @description  Per-channel playback speed and subtitle preferences, with audio boost, real-time duration display, start-paused, fullscreen on play / auto-exit near the end, fullscreen progress bar, hide live chat, and custom language editor.
+// @version      1.2.42
+// @description  Per-channel playback speed and subtitle preferences, with audio boost, real-time duration display, start-paused, fullscreen on play / auto-exit near the end, bottom progress bar, hide live chat, and custom language editor.
 // @author       bgtsai
 // @match        https://www.youtube.com/*
 // @grant        GM.setValue
@@ -59,7 +59,7 @@
  *   • Audio boost with soft limiter to prevent clipping.
  *   • Optional relative time display (adjusts for current playback speed).
  *   • Optionally starts new videos paused; enters fullscreen when you press Play, exits near the end.
- *   • Thin fullscreen progress bar while the player controls are hidden; optional live-chat hiding.
+ *   • Thin bottom progress bar whenever the player controls are hidden; optional live-chat hiding.
  *   • Full settings panel with color picker and button template editor.
  *
  * ─────────────────────────────────────────────────────────────────────────────
@@ -133,13 +133,14 @@
             labelColorNormal:        'Color — Normal',
             labelStartPaused:        'Start New Videos Paused',
             labelStartPausedSub:     'Playlists and autoplay-next keep playing',
-            labelFsProgress:         'Fullscreen Progress Bar',
-            labelFsProgressSub:      'Thin bar while controls are hidden',
+            labelFsProgress:         'Bottom Progress Bar',
+            labelFsProgressSub:      'Thin bar whenever player controls are hidden',
             labelHideChat:           'Hide Live Chat',
             labelAutoFullscreenOnPlay:     'Fullscreen When I Press Play',
             labelAutoFullscreenOnEnd:      'Auto Exit Fullscreen on End',
-            labelAutoFullscreenNote:       'Works in Chrome, Edge and Firefox with no setup —',
-            labelAutoFullscreenLink: 'Details',
+            fsNoteOk:                'With Start New Videos Paused on, fullscreen triggers when you press Play — no browser setup needed.',
+            fsNoteWarn:              '⚠ Start New Videos Paused is off: videos that start by themselves cannot go fullscreen until you change a browser setting — otherwise it will look broken.',
+            labelAutoFullscreenLink: 'How to set up',
             fsHelpTitle:             'About Auto Fullscreen',
             fsHelpDesc:              'Browsers only allow fullscreen right after you click or press a key.',
             fsHelpBody:              '<p>Fullscreen is entered the moment you press Play, so Chrome, Edge and Firefox need no extra settings.</p><p>Pair it with <b>Start New Videos Paused</b>: every video then starts with your own Play press, so fullscreen always triggers.</p><p>Videos that start on their own (autoplay-next, or with Start Paused off) cannot go fullscreen unless the browser allows it:</p><ul><li>Firefox: in <code>about:config</code> set <code>full-screen-api.allow-trusted-requests-only</code> to <code>false</code>.</li><li>Chrome / Edge: the enterprise policy <code>AutomaticFullscreenAllowedForUrls</code> with <code>https://www.youtube.com</code>.</li></ul>',
@@ -163,7 +164,7 @@
             rdItemColors:            'Selected & Normal colors',
             rdItemRelTime:           'Show Relative Time',
             rdItemFullscreen:        'Auto Fullscreen on Play & on End',
-            rdItemExtras:            'Start Paused, Fullscreen Progress Bar & Hide Live Chat',
+            rdItemExtras:            'Start Paused, Bottom Progress Bar & Hide Live Chat',
             rdBtnCancel:             'Cancel',
             rdBtnConfirm:            'Restore',
 
@@ -250,13 +251,14 @@
             labelColorNormal:        '顏色 — 一般',
             labelStartPaused:        '開啟新影片時先暫停',
             labelStartPausedSub:     '播放清單與自動播放下一部不受影響',
-            labelFsProgress:         '全螢幕底部進度條',
-            labelFsProgressSub:      '控制列隱藏時顯示',
+            labelFsProgress:         '底部細進度條',
+            labelFsProgressSub:      '播放器控制列隱藏時顯示（含全螢幕）',
             labelHideChat:           '隱藏直播聊天室',
             labelAutoFullscreenOnPlay:     '按下播放時自動全螢幕',
             labelAutoFullscreenOnEnd:      '結束時自動退出全螢幕',
-            labelAutoFullscreenNote:       'Chrome、Edge、Firefox 皆免設定 —',
-            labelAutoFullscreenLink: '說明',
+            fsNoteOk:                '已開啟「開啟新影片時先暫停」：按下播放即可全螢幕，瀏覽器不需額外設定。',
+            fsNoteWarn:              '⚠ 未開啟「開啟新影片時先暫停」：影片自己開始播放時無法全螢幕，必須到瀏覽器做額外設定，否則看起來會像功能失效。',
+            labelAutoFullscreenLink: '設定方法',
             fsHelpTitle:             '自動全螢幕說明',
             fsHelpDesc:              '瀏覽器只允許在你點擊或按鍵之後進入全螢幕。',
             fsHelpBody:              '<p>本腳本在你按下播放的那一刻進入全螢幕，所以 Chrome、Edge、Firefox 都不需要額外設定。</p><p>建議搭配<b>「開啟新影片時先暫停」</b>：每支影片都由你按下播放，全螢幕就一定能觸發。</p><p>自己開始播放的影片（自動播放下一部，或沒開「先暫停」時）無法進入全螢幕，除非瀏覽器允許：</p><ul><li>Firefox：在 <code>about:config</code> 把 <code>full-screen-api.allow-trusted-requests-only</code> 設為 <code>false</code>。</li><li>Chrome／Edge：企業政策 <code>AutomaticFullscreenAllowedForUrls</code> 加入 <code>https://www.youtube.com</code>。</li></ul>',
@@ -280,7 +282,7 @@
             rdItemColors:            '已選取與一般顏色',
             rdItemRelTime:           '顯示實際時間',
             rdItemFullscreen:        '自動全螢幕（播放 / 結束）',
-            rdItemExtras:            '先暫停、全螢幕進度條、隱藏直播聊天室',
+            rdItemExtras:            '先暫停、底部細進度條、隱藏直播聊天室',
             rdBtnCancel:             '取消',
             rdBtnConfirm:            '恢復',
 
@@ -572,7 +574,7 @@
          */
         FULLSCREEN_ON_END: false,
 
-        /** When true, shows a thin progress bar at the bottom while fullscreen controls are hidden. */
+        /** When true, shows a thin progress bar at the bottom of the player whenever its controls are hidden. */
         FS_PROGRESS_BAR: true,
 
         /** When true, hides the live-chat panel (ytd-live-chat-frame). Playlist panel is unaffected. */
@@ -788,7 +790,7 @@
                 border: 1px solid ${t.hdrBorder};
                 box-shadow: 0 20px 50px rgba(0,0,0,0.4);
                 font-family: -apple-system, 'Helvetica Neue', Arial, sans-serif;
-                font-size: 13px; color: ${t.lbl};
+                font-size: 17px; color: ${t.lbl};
                 max-height: 90vh; display: flex; flex-direction: column;
             }
             #ysc-settings-panel .ysc-hdr {
@@ -800,16 +802,16 @@
             }
             #ysc-settings-panel .ysc-hdr-left { display: flex; align-items: center; gap: 8px; }
             #ysc-settings-panel .ysc-yt-logo { width: 22px; height: 15px; flex-shrink: 0; }
-            #ysc-settings-panel .ysc-title { font-size: 14px; font-weight: 700; color: ${t.title}; letter-spacing: 0.2px; }
+            #ysc-settings-panel .ysc-title { font-size: 20px; font-weight: 700; color: ${t.title}; letter-spacing: 0.2px; }
             #ysc-settings-panel .ysc-close {
                 width: 22px; height: 22px; border-radius: 50%; border: none;
                 background: ${t.closeBg}; color: ${t.closeColor};
-                font-size: 11px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+                font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center;
                 flex-shrink: 0; transition: background 0.15s;
             }
             #ysc-settings-panel .ysc-body { overflow-y: auto; padding: 4px 0 0; flex: 1; }
             #ysc-settings-panel .ysc-group {
-                font-size: 13px; letter-spacing: 0.5px;
+                font-size: 18px; letter-spacing: 0.5px;
                 color: ${t.groupLbl}; font-weight: 600;
                 background: ${t.groupBadgeBg}; border-radius: 4px;
                 padding: 2px 7px; margin: 10px 16px 6px;
@@ -828,16 +830,23 @@
             }
             #ysc-settings-panel .ysc-row:has(+ .ysc-sep)::after,
             #ysc-settings-panel .ysc-row:has(+ .ysc-danger-zone)::after { display: none; }
-            #ysc-settings-panel .ysc-lbl { font-size: 12px; color: ${t.lbl}; }
-            #ysc-settings-panel .ysc-lbl small { display: block; font-size: 11px; color: ${t.lblSub}; margin-top: 1px; }
+            #ysc-settings-panel .ysc-lbl { font-size: 17px; color: ${t.lbl}; }
+            #ysc-settings-panel .ysc-lbl small { display: block; font-size: 16px; color: ${t.lblSub}; margin-top: 1px; }
             #ysc-settings-panel .ysc-help-link { color: inherit; opacity: 0.7; }
+            #ysc-settings-panel .ysc-note.ysc-warn {
+                margin: 2px 16px 10px; padding: 8px 10px; border-radius: 6px; line-height: 1.5;
+                border-left: 3px solid #f5a623; font-weight: 600;
+                background: ${isDark ? 'rgba(245,166,35,0.14)' : 'rgba(245,166,35,0.12)'};
+                color: ${isDark ? '#ffc861' : '#8a5300'};
+            }
+            #ysc-settings-panel .ysc-note.ysc-warn .ysc-help-link { opacity: 1; text-decoration: underline; }
             #ysc-settings-panel .ysc-help-link:hover { opacity: 1; }
             #ysc-cl-confirm-dialog .cld-rich p { margin: 0 0 8px; }
             #ysc-cl-confirm-dialog .cld-rich ul { margin: 0; padding-left: 18px; }
             #ysc-cl-confirm-dialog .cld-rich li { margin-bottom: 4px; }
-            #ysc-cl-confirm-dialog .cld-rich code { font-size: 11px; word-break: break-all; }
+            #ysc-cl-confirm-dialog .cld-rich code { font-size: 16px; overflow-wrap: anywhere; }
             #ysc-settings-panel .ysc-note {
-                padding: 2px 16px 8px; font-size: 11px; color: ${t.lblSub};
+                padding: 2px 16px 8px; font-size: 16px; color: ${t.lblSub};
             }
             #ysc-settings-panel .ysc-sep { height: 1px; background: ${t.sep}; margin: 2px 0; }
             /* Stepper */
@@ -848,14 +857,14 @@
             }
             #ysc-settings-panel .ysc-stepper-btn {
                 width: 28px; height: 28px; border: none; cursor: pointer;
-                font-size: 15px; color: ${t.stepperBtnColor}; background: transparent;
+                font-size: 18px; color: ${t.stepperBtnColor}; background: transparent;
                 display: flex; align-items: center; justify-content: center;
                 transition: background 0.12s; padding-bottom: 1px; flex-shrink: 0;
             }
             #ysc-settings-panel .ysc-stepper-btn:hover { background: ${t.stepperBtnHover}; }
             #ysc-settings-panel .ysc-stepper-val {
                 width: 46px; height: 28px; border: none; background: transparent;
-                color: ${t.stepperValColor}; font-size: 13px; text-align: center; outline: none;
+                color: ${t.stepperValColor}; font-size: 17px; text-align: center; outline: none;
                 border-left: 1px solid ${t.stepperDivider}; border-right: 1px solid ${t.stepperDivider};
                 -moz-appearance: textfield;
             }
@@ -863,7 +872,7 @@
             #ysc-settings-panel .ysc-stepper-val::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
             /* Text input */
             #ysc-settings-panel .ysc-input {
-                border-radius: 7px; padding: 5px 9px; font-size: 13px; outline: none;
+                border-radius: 7px; padding: 5px 9px; font-size: 17px; outline: none;
                 background: ${t.inputBg}; border: 1px solid ${t.inputBorder}; color: ${t.inputColor};
                 width: 116px; text-align: right; transition: border 0.15s, background 0.15s;
             }
@@ -880,7 +889,7 @@
                 border-color: rgba(204,0,0,0.65);
             }
             #ysc-settings-panel .ysc-color-text {
-                font-size: 11px; color: ${t.inputColor};
+                font-size: 16px; color: ${t.inputColor};
                 font-family: 'Courier New', monospace;
                 white-space: nowrap; padding-right: 8px;
             }
@@ -906,7 +915,7 @@
             #ysc-settings-panel .ysc-toggle.on::after { left: 18px; }
             /* Edit btn */
             #ysc-settings-panel .ysc-edit-btn {
-                border-radius: 7px; padding: 5px 11px; font-size: 12px; cursor: pointer;
+                border-radius: 7px; padding: 5px 11px; font-size: 17px; cursor: pointer;
                 background: ${t.editBg}; border: 1px solid ${t.editBorder}; color: ${t.editColor};
                 transition: background 0.12s; white-space: nowrap;
             }
@@ -922,25 +931,25 @@
                 background: ${t.bg};
                 box-shadow: 0 8px 28px rgba(0,0,0,0.4);
                 font-family: -apple-system, 'Helvetica Neue', Arial, sans-serif;
-                font-size: 13px; color: ${t.lbl};
+                font-size: 17px; color: ${t.lbl};
                 display: flex; flex-direction: column;
                 max-height: 90vh;
             }
             #ysc-bt-editor .bt-hdr {
                 background: ${t.hdrBg}; border-bottom: 1px solid ${t.hdrBorder};
-                padding: 11px 14px; font-size: 14px; font-weight: 700;
+                padding: 11px 14px; font-size: 20px; font-weight: 700;
                 color: ${t.title}; letter-spacing: 0.2px;
                 display: flex; align-items: center; justify-content: space-between;
             }
-            #ysc-bt-editor .bt-hdr-sub { font-size: 11px; color: ${t.groupLbl}; font-weight: 400; }
+            #ysc-bt-editor .bt-hdr-sub { font-size: 16px; color: ${t.groupLbl}; font-weight: 400; }
             #ysc-bt-editor .bt-col-headers {
                 display: flex; align-items: center;
                 padding: 6px 14px 4px; gap: 8px;
                 border-bottom: 1px solid ${t.rowBorder};
             }
             #ysc-bt-editor .bt-col-handle { width: 16px; flex-shrink: 0; }
-            #ysc-bt-editor .bt-col-label  { flex: 1; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: ${t.groupLbl}; }
-            #ysc-bt-editor .bt-col-speed  { flex-shrink: 0; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: ${t.groupLbl}; text-align: right; }
+            #ysc-bt-editor .bt-col-label  { flex: 1; font-size: 16px; letter-spacing: 1.5px; text-transform: uppercase; color: ${t.groupLbl}; }
+            #ysc-bt-editor .bt-col-speed  { flex-shrink: 0; font-size: 16px; letter-spacing: 1.5px; text-transform: uppercase; color: ${t.groupLbl}; text-align: right; }
             #ysc-bt-editor .bt-col-del    { width: 22px; flex-shrink: 0; }
             #ysc-bt-editor .bt-list {
                 overflow-y: auto; overflow-x: hidden; padding: 4px 0;
@@ -959,7 +968,7 @@
             #ysc-bt-editor .bt-row.drag-over-bottom { border-bottom-color: rgba(204,0,0,0.7); }
             #ysc-bt-editor .bt-drag-handle {
                 width: 16px; flex-shrink: 0; cursor: grab;
-                color: ${t.lblSub}; font-size: 13px;
+                color: ${t.lblSub}; font-size: 17px;
                 display: flex; align-items: center; justify-content: center;
                 transition: color 0.12s; user-select: none;
             }
@@ -967,14 +976,14 @@
             #ysc-bt-editor .bt-drag-handle:active { cursor: grabbing; }
             #ysc-bt-editor .bt-inp-label {
                 flex: 1; height: 26px; border-radius: 6px;
-                padding: 0 8px; font-size: 13px; outline: none; min-width: 0;
+                padding: 0 8px; font-size: 17px; outline: none; min-width: 0;
                 background: ${t.inputBg}; border: 1px solid ${t.inputBorder}; color: ${t.inputColor};
                 transition: border-color 0.15s;
             }
             #ysc-bt-editor .bt-inp-label:focus { border-color: rgba(204,0,0,0.5); }
             #ysc-bt-editor .bt-inp-speed {
                 flex-shrink: 0; height: 26px; border-radius: 6px;
-                padding: 0 8px; font-size: 13px; outline: none; text-align: right;
+                padding: 0 8px; font-size: 17px; outline: none; text-align: right;
                 background: ${t.inputBg}; border: 1px solid ${t.inputBorder}; color: ${t.inputColor};
                 transition: border-color 0.15s; -moz-appearance: textfield;
             }
@@ -986,7 +995,7 @@
             #ysc-bt-editor .bt-del-btn {
                 width: 22px; height: 22px; flex-shrink: 0; border-radius: 5px;
                 border: none; background: transparent; cursor: pointer;
-                font-size: 12px; color: ${t.lblSub};
+                font-size: 17px; color: ${t.lblSub};
                 display: flex; align-items: center; justify-content: center;
                 transition: background 0.12s, color 0.12s;
             }
@@ -999,7 +1008,7 @@
                 display: flex; align-items: center; gap: 5px;
                 padding: 5px 10px; border-radius: 6px;
                 border: 1px dashed ${t.inputBorder};
-                background: transparent; cursor: pointer; font-size: 12px; color: ${t.groupLbl};
+                background: transparent; cursor: pointer; font-size: 17px; color: ${t.groupLbl};
                 transition: all 0.15s;
             }
             #ysc-bt-editor .bt-add-btn:hover { border-color: rgba(204,0,0,0.4); color: #cc4444; background: rgba(204,0,0,0.05); }
@@ -1009,7 +1018,7 @@
             }
             #ysc-bt-editor .bt-btn {
                 flex: 1; padding: 7px; border-radius: 7px; border: none;
-                font-size: 12px; font-weight: 600; cursor: pointer;
+                font-size: 17px; font-weight: 600; cursor: pointer;
                 display: flex; align-items: center; justify-content: center;
                 transition: opacity 0.12s;
             }
@@ -1030,13 +1039,13 @@
                 background: ${t.bg};
                 box-shadow: 0 8px 28px rgba(0,0,0,0.4);
                 font-family: -apple-system, 'Helvetica Neue', Arial, sans-serif;
-                font-size: 13px; color: ${t.lbl};
+                font-size: 17px; color: ${t.lbl};
                 display: flex; flex-direction: column;
                 width: 560px; max-height: 80vh;
             }
             #ysc-cl-editor .cl-hdr {
                 background: ${t.hdrBg}; border-bottom: 1px solid ${t.hdrBorder};
-                padding: 11px 14px; font-size: 14px; font-weight: 700;
+                padding: 11px 14px; font-size: 20px; font-weight: 700;
                 color: ${t.title}; letter-spacing: 0.2px;
                 display: flex; align-items: center; justify-content: space-between;
                 flex-shrink: 0;
@@ -1044,7 +1053,7 @@
             #ysc-cl-editor .cl-hdr-close {
                 width: 22px; height: 22px; border-radius: 50%; border: none;
                 background: ${t.closeBg}; color: ${t.closeColor};
-                font-size: 11px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+                font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center;
                 transition: background 0.15s;
             }
             #ysc-cl-editor .cl-langcode-row {
@@ -1053,11 +1062,11 @@
                 flex-shrink: 0;
             }
             #ysc-cl-editor .cl-langcode-lbl {
-                font-size: 12px; color: ${t.lbl}; white-space: nowrap;
+                font-size: 17px; color: ${t.lbl}; white-space: nowrap;
             }
             #ysc-cl-editor .cl-langcode-inp {
                 flex: 1; height: 26px; border-radius: 6px;
-                padding: 0 8px; font-size: 13px; outline: none;
+                padding: 0 8px; font-size: 17px; outline: none;
                 background: ${t.inputBg}; border: 1px solid ${t.inputBorder}; color: ${t.inputColor};
                 transition: border-color 0.15s;
             }
@@ -1069,9 +1078,9 @@
                 border-bottom: 1px solid ${t.rowBorder};
                 flex-shrink: 0;
             }
-            #ysc-cl-editor .cl-col-num  { width: 28px; flex-shrink: 0; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: ${t.groupLbl}; }
-            #ysc-cl-editor .cl-col-ref  { flex: 1; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: ${t.groupLbl}; }
-            #ysc-cl-editor .cl-col-val  { flex: 1; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: ${t.groupLbl}; }
+            #ysc-cl-editor .cl-col-num  { width: 28px; flex-shrink: 0; font-size: 16px; letter-spacing: 1.5px; text-transform: uppercase; color: ${t.groupLbl}; }
+            #ysc-cl-editor .cl-col-ref  { flex: 1; font-size: 16px; letter-spacing: 1.5px; text-transform: uppercase; color: ${t.groupLbl}; }
+            #ysc-cl-editor .cl-col-val  { flex: 1; font-size: 16px; letter-spacing: 1.5px; text-transform: uppercase; color: ${t.groupLbl}; }
             #ysc-cl-editor .cl-list {
                 overflow-y: auto; overflow-x: hidden; padding: 4px 0;
                 flex: 1; min-height: 0;
@@ -1083,10 +1092,10 @@
             }
             #ysc-cl-editor .cl-num {
                 width: 28px; flex-shrink: 0; padding-top: 5px;
-                font-size: 11px; color: ${t.lblSub}; font-variant-numeric: tabular-nums;
+                font-size: 16px; color: ${t.lblSub}; font-variant-numeric: tabular-nums;
             }
             #ysc-cl-editor .cl-ref-cell {
-                flex: 1; font-size: 11px; color: ${t.lblSub};
+                flex: 1; font-size: 16px; color: ${t.lblSub};
                 background: ${isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'};
                 border: 1px solid ${t.inputBorder}; border-radius: 5px;
                 padding: 4px 7px; min-width: 0;
@@ -1095,7 +1104,7 @@
             }
             #ysc-cl-editor .cl-inp {
                 flex: 1; border-radius: 5px;
-                padding: 4px 7px; font-size: 13px; outline: none; min-width: 0;
+                padding: 4px 7px; font-size: 17px; outline: none; min-width: 0;
                 background: ${t.inputBg}; border: 1px solid ${t.inputBorder}; color: ${t.inputColor};
                 transition: border-color 0.15s; box-sizing: border-box;
                 resize: none; overflow: hidden; line-height: 1.45;
@@ -1111,7 +1120,7 @@
             }
             #ysc-cl-editor .cl-btn {
                 padding: 6px 12px; border-radius: 7px; border: none;
-                font-size: 12px; font-weight: 600; cursor: pointer;
+                font-size: 17px; font-weight: 600; cursor: pointer;
                 display: flex; align-items: center; justify-content: center;
                 transition: opacity 0.12s;
             }
@@ -1141,26 +1150,31 @@
                 background: ${t.bg};
                 box-shadow: 0 8px 28px rgba(0,0,0,0.4);
                 font-family: -apple-system, 'Helvetica Neue', Arial, sans-serif;
-                font-size: 13px; color: ${t.lbl};
-                width: 320px;
+                font-size: 17px; color: ${t.lbl};
+                width: 400px; max-width: calc(100vw - 32px);
             }
+            #ysc-cl-confirm-dialog.ysc-help-dialog {
+                width: 520px; border-color: ${t.sep};
+            }
+            #ysc-cl-confirm-dialog.ysc-help-dialog .cld-hdr { background: transparent; border-bottom-color: ${t.sep}; }
+            #ysc-cl-confirm-dialog.ysc-help-dialog .cld-title { color: ${t.title}; }
             #ysc-cl-confirm-dialog .cld-hdr {
                 background: ${isDark ? 'rgba(180,0,0,0.18)' : 'rgba(204,0,0,0.07)'};
                 border-bottom: 1px solid ${isDark ? 'rgba(204,0,0,0.25)' : 'rgba(204,0,0,0.15)'};
                 padding: 12px 16px 10px;
             }
             #ysc-cl-confirm-dialog .cld-title {
-                font-size: 14px; font-weight: 700;
+                font-size: 20px; font-weight: 700;
                 color: ${isDark ? '#ff6060' : '#cc0000'};
                 margin-bottom: 5px;
             }
             #ysc-cl-confirm-dialog .cld-desc {
-                font-size: 11px; color: ${t.lblSub}; line-height: 1.5;
+                font-size: 16px; color: ${t.lblSub}; line-height: 1.5;
             }
             #ysc-cl-confirm-dialog .cld-body {
                 padding: 12px 16px;
                 border-bottom: 1px solid ${t.rowBorder};
-                font-size: 11px; color: ${t.lblSub}; line-height: 1.6;
+                font-size: 16px; color: ${t.lblSub}; line-height: 1.6;
             }
             #ysc-cl-confirm-dialog .cld-body pre {
                 font-family: inherit; margin: 0; white-space: pre-wrap;
@@ -1171,7 +1185,7 @@
             }
             #ysc-cl-confirm-dialog .cld-btn {
                 flex: 1; padding: 7px; border-radius: 7px; border: none;
-                font-size: 12px; font-weight: 600; cursor: pointer;
+                font-size: 17px; font-weight: 600; cursor: pointer;
                 display: flex; align-items: center; justify-content: center;
                 transition: opacity 0.12s; min-width: 80px;
             }
@@ -1192,16 +1206,16 @@
                 background: ${isDark ? 'rgba(140,0,0,0.08)' : 'rgba(180,40,40,0.04)'};
             }
             #ysc-settings-panel .ysc-danger-label {
-                font-size: 13px; letter-spacing: 0.5px;
+                font-size: 18px; letter-spacing: 0.5px;
                 color: ${isDark ? 'rgba(200,80,80,0.7)' : 'rgba(160,40,40,0.6)'};
                 font-weight: 600; margin-bottom: 8px;
             }
             #ysc-settings-panel .ysc-danger-desc {
-                font-size: 11px; color: ${isDark ? 'rgba(200,150,150,0.55)' : 'rgba(140,60,60,0.55)'};
+                font-size: 16px; color: ${isDark ? 'rgba(200,150,150,0.55)' : 'rgba(140,60,60,0.55)'};
                 margin-bottom: 10px; line-height: 1.45;
             }
             #ysc-settings-panel .ysc-btn-reset {
-                padding: 6px 14px; border-radius: 7px; font-size: 12px; font-weight: 600;
+                padding: 6px 14px; border-radius: 7px; font-size: 17px; font-weight: 600;
                 cursor: pointer; letter-spacing: 0.2px; transition: all 0.15s;
                 background: transparent;
                 border: 1px solid ${isDark ? 'rgba(180,60,60,0.45)' : 'rgba(160,40,40,0.3)'};
@@ -1218,7 +1232,7 @@
             }
             #ysc-settings-panel .ysc-btn {
                 flex: 1; padding: 8px; border-radius: 8px; border: none;
-                font-size: 12px; font-weight: 600; cursor: pointer; letter-spacing: 0.2px;
+                font-size: 17px; font-weight: 600; cursor: pointer; letter-spacing: 0.2px;
                 transition: opacity 0.12s;
             }
             #ysc-settings-panel .ysc-btn:active { opacity: 0.82; }
@@ -1238,7 +1252,7 @@
                 background: ${t.bg};
                 box-shadow: 0 8px 28px rgba(0,0,0,0.4);
                 font-family: -apple-system, 'Helvetica Neue', Arial, sans-serif;
-                font-size: 13px; color: ${t.lbl};
+                font-size: 17px; color: ${t.lbl};
                 width: 300px;
             }
             #ysc-reset-dialog .rd-hdr {
@@ -1247,18 +1261,18 @@
                 padding: 13px 16px 11px;
             }
             #ysc-reset-dialog .rd-hdr-title {
-                font-size: 14px; font-weight: 700; color: ${isDark ? '#ff6060' : '#cc0000'};
+                font-size: 20px; font-weight: 700; color: ${isDark ? '#ff6060' : '#cc0000'};
                 display: flex; align-items: center; gap: 7px; margin-bottom: 5px;
             }
             #ysc-reset-dialog .rd-hdr-sub {
-                font-size: 11px; color: ${t.lblSub}; line-height: 1.5;
+                font-size: 16px; color: ${t.lblSub}; line-height: 1.5;
             }
             #ysc-reset-dialog .rd-body {
                 padding: 12px 16px;
                 border-bottom: 1px solid ${t.rowBorder};
             }
             #ysc-reset-dialog .rd-item {
-                font-size: 11px; color: ${t.lblSub};
+                font-size: 16px; color: ${t.lblSub};
                 padding: 3px 0; display: flex; align-items: center; gap: 7px;
             }
             #ysc-reset-dialog .rd-item::before {
@@ -1266,7 +1280,7 @@
                 background: ${isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)'}; flex-shrink: 0;
             }
             #ysc-reset-dialog .rd-note {
-                font-size: 11px; font-style: italic; margin-top: 8px; padding-top: 8px;
+                font-size: 16px; font-style: italic; margin-top: 8px; padding-top: 8px;
                 border-top: 1px solid ${t.rowBorder};
                 color: ${isDark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.28)'};
             }
@@ -1276,7 +1290,7 @@
             }
             #ysc-reset-dialog .rd-btn {
                 flex: 1; padding: 7px; border-radius: 7px; border: none;
-                font-size: 12px; font-weight: 600; cursor: pointer;
+                font-size: 17px; font-weight: 600; cursor: pointer;
                 display: flex; align-items: center; justify-content: center;
                 transition: opacity 0.12s;
             }
@@ -1329,7 +1343,7 @@
             #ysc-cp .cp-tracks { flex:1; display:flex; flex-direction:column; gap:7px; padding-right:4px; }
             #ysc-cp .cp-track-row { display:flex; align-items:center; gap:14px; }
             #ysc-cp .cp-track-lbl {
-              width:10px; text-align:center; font-size:10px; font-weight:600;
+              width:10px; text-align:center; font-size:16px; font-weight:600;
               user-select:none; flex-shrink:0;
             }
             #ysc-cp .cp-track-lbl.vis  { color:#aaa; }
@@ -1362,7 +1376,7 @@
             }
             #ysc-cp .cp-tab {
               flex:1; padding:3px 0; border-radius:5px; border:1px solid transparent;
-              font-size:10px; font-weight:600; cursor:pointer; background:transparent;
+              font-size:16px; font-weight:600; cursor:pointer; background:transparent;
               color:#999; letter-spacing:0.03em;
             }
             #ysc-cp .cp-tab.active { background:rgba(0,0,0,0.07); color:#333; border-color:rgba(0,0,0,0.2); }
@@ -1372,7 +1386,7 @@
               padding:0 13px 7px;
             }
             #ysc-cp .cp-summary {
-              width:100%; box-sizing:border-box; padding:5px 8px; font-size:11px;
+              width:100%; box-sizing:border-box; padding:5px 8px; font-size:16px;
               border:1px solid rgba(0,0,0,0.15); border-radius:6px; outline:none;
               font-family:"Courier New",monospace; background:#fafafa; color:#333;
               text-align:center;
@@ -1387,7 +1401,7 @@
             #ysc-cp .cp-steppers { width:105px; flex-shrink:0; flex-grow:0; display:flex; flex-direction:column; gap:9px; }
             #ysc-cp .cp-ch-row { display:flex; align-items:center; gap:5px; }
             #ysc-cp .cp-ch-lbl {
-              width:12px; text-align:center; font-size:10px; font-weight:600;
+              width:12px; text-align:center; font-size:16px; font-weight:600;
               user-select:none; flex-shrink:0;
             }
             #ysc-cp .cp-ch-lbl.vis  { color:#888; }
@@ -1401,13 +1415,13 @@
 
             #ysc-cp .cp-s-btn {
               width:22px; height:100%; border:none; background:transparent;
-              cursor:pointer; font-size:13px; color:#555; flex-shrink:0;
+              cursor:pointer; font-size:17px; color:#555; flex-shrink:0;
               display:flex; align-items:center; justify-content:center; line-height:1;
             }
             #ysc-cp .cp-s-btn:hover { background:rgba(0,0,0,0.07); }
 
             #ysc-cp .cp-s-val {
-              flex:1; border:none; outline:none; text-align:center; font-size:11px;
+              flex:1; border:none; outline:none; text-align:center; font-size:16px;
               background:transparent; color:#333; width:0; min-width:0;
               -moz-appearance:textfield;
             }
@@ -1421,7 +1435,7 @@
             }
             #ysc-cp .cp-btn {
               width:100%; padding:5px 0; border-radius:6px; border:none;
-              font-size:11.5px; cursor:pointer; transition:opacity 0.1s;
+              font-size:16px; cursor:pointer; transition:opacity 0.1s;
             }
             #ysc-cp .cp-btn:active { opacity:.82; }
             #ysc-cp .cp-btn-cancel { background:#ebebeb; border:1px solid rgba(0,0,0,0.12); color:#666; font-weight:500; }
@@ -1524,7 +1538,7 @@
 
               <div class="ysc-sep"></div>
               <div class="ysc-group">${LANG.sectionAutomation}</div>
-              <div class="ysc-note">${LANG.labelAutoFullscreenNote} <a class="ysc-help-link" id="ysc-fs-help" href="#">${LANG.labelAutoFullscreenLink}</a></div>
+              <div class="ysc-note" id="ysc-fs-note"><span id="ysc-fs-note-txt"></span> <a class="ysc-help-link" id="ysc-fs-help" href="#">${LANG.labelAutoFullscreenLink}</a></div>
               <div class="ysc-row">
                 <div class="ysc-lbl">${LANG.labelAutoFullscreenOnPlay}</div>
                 <div class="ysc-toggle${cur['FULLSCREEN_ON_START'] ? ' on' : ''}" id="ysc-tg-fsstart"></div>
@@ -1573,7 +1587,7 @@
         // subsequent panel opens skip the measurement entirely.
         if (!_panelMeasureCache) {
             const measureEl = document.createElement('div');
-            measureEl.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font-family:-apple-system,"Helvetica Neue",Arial,sans-serif;font-size:12px;';
+            measureEl.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font-family:-apple-system,"Helvetica Neue",Arial,sans-serif;font-size:17px;';
             document.body.appendChild(measureEl);
 
             // Measure the widest label string.
@@ -1591,7 +1605,7 @@
 
             // Measure the widest color display string (used to size the color-row widget).
             const colorProbe = document.createElement('div');
-            colorProbe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font-family:"Courier New",monospace;font-size:11px;';
+            colorProbe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font-family:"Courier New",monospace;font-size:16px;';
             document.body.appendChild(colorProbe);
             const colorSamples = ['RGB( 999, 999, 999 )', 'HSV( 360, 100, 100 )', '#FFFFFF'];
             let maxColorTxtW = 0;
@@ -1603,7 +1617,7 @@
 
             // Measure speed input width against the widest realistic value ("3.500").
             const speedProbe = document.createElement('div');
-            speedProbe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font-family:-apple-system,"Helvetica Neue",Arial,sans-serif;font-size:13px;';
+            speedProbe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font-family:-apple-system,"Helvetica Neue",Arial,sans-serif;font-size:17px;';
             speedProbe.textContent = '3.500';
             document.body.appendChild(speedProbe);
             const speedInputW = speedProbe.scrollWidth + 16 + 2; // padding 8×2 + border 2
@@ -2072,7 +2086,7 @@
                     <div class="bt-list" id="ysc-bt-list"></div>
                     <div class="bt-add-row">
                         <button class="bt-add-btn" id="ysc-bt-add">
-                            <span style="font-size:14px;line-height:1">+</span> ${LANG.btBtnAdd.replace('+ ', '')}
+                            <span style="font-size:18px;line-height:1">+</span> ${LANG.btBtnAdd.replace('+ ', '')}
                         </button>
                     </div>
                     <div class="bt-footer">
@@ -2687,6 +2701,20 @@
             refreshContainers();
         });
 
+        // ── Auto-fullscreen note: warn loudly when fullscreen-on-play is on but
+        //    Start Paused is off (auto-started videos then need a browser setting).
+        function updateFsNote() {
+            const fsOn     = document.getElementById('ysc-tg-fsstart').classList.contains('on');
+            const pausedOn = document.getElementById('ysc-tg-startpaused').classList.contains('on');
+            const warn     = fsOn && !pausedOn;
+            document.getElementById('ysc-fs-note').classList.toggle('ysc-warn', warn);
+            document.getElementById('ysc-fs-note-txt').textContent = warn ? LANG.fsNoteWarn : LANG.fsNoteOk;
+        }
+        updateFsNote();
+        for (const tid of ['ysc-tg-fsstart', 'ysc-tg-startpaused']) {
+            document.getElementById(tid).addEventListener('click', () => setTimeout(updateFsNote, 0));
+        }
+
         // ── Auto-fullscreen help dialog ──────────────────────────────────────
         // Reuses the custom-language confirm dialog styles.
         panel.querySelector('#ysc-fs-help').addEventListener('click', e => {
@@ -2695,7 +2723,7 @@
             const ov = document.createElement('div');
             ov.id = 'ysc-cl-confirm-overlay';
             ov.innerHTML = _trustedHTML(`
-                <div id="ysc-cl-confirm-dialog">
+                <div id="ysc-cl-confirm-dialog" class="ysc-help-dialog">
                     <div class="cld-hdr">
                         <div class="cld-title">${LANG.fsHelpTitle}</div>
                         <div class="cld-desc">${LANG.fsHelpDesc}</div>
@@ -3423,7 +3451,7 @@
         #ycm-fsbar .ycm-fsbar-load { background: var(--ycm-fsbar-load, rgba(255,255,255,.4)); }
         #ycm-fsbar .ycm-fsbar-play { background: var(--ycm-fsbar-play, linear-gradient(90deg,#f03 80%,#ff2791)); }
         .ad-interrupting #ycm-fsbar .ycm-fsbar-play { background: #fc0; }
-        html[ycm-fsbar] .html5-video-player.ytp-fullscreen.ytp-autohide #ycm-fsbar:not([ycm-live]) { opacity: 1; }
+        html[ycm-fsbar] .html5-video-player.ytp-autohide:not(.ytp-player-minimized) #ycm-fsbar:not([ycm-live]) { opacity: 1; }
         #ycm-fsbar[ycm-live] .ycm-fsbar-load { display: none; }
 
         /* Hide live chat (the playlist panel is a different element and stays). */
@@ -3441,10 +3469,10 @@
     _applyPageFlags();
 
     // ─────────────────────────────────────────────────────────────────────────
-    // FULLSCREEN PROGRESS BAR
+    // BOTTOM PROGRESS BAR
     // A full-width copy of YouTube's progress bar pinned to the bottom of the
-    // fullscreen player, visible only while the native controls are hidden
-    // (.ytp-autohide), so the two never overlap. Height and colors are read
+    // player (normal and fullscreen), visible only while the native controls
+    // are hidden (.ytp-autohide), so the two never overlap. Height and colors are read
     // from the native bar each time fullscreen is entered, so the copy follows
     // whatever player UI version YouTube serves; pixel heights are rounded up
     // to whole pixels.
@@ -3492,9 +3520,11 @@
 
     /** Updates the played / buffered widths of the bar for a video. */
     function _updateFsBar(video) {
-        const player = video.closest('.html5-video-player');
-        if (!player || !player.classList.contains('ytp-fullscreen')) return;
+        const player = video.closest('#movie_player');
+        if (!player) return;
+        const isNew = !player.querySelector(':scope > #ycm-fsbar');
         const bar = _ensureFsBar(player);
+        if (isNew) _syncFsBarStyle(player, bar);
         const d = video.duration;
         if (!isFinite(d) || d <= 0) { bar.setAttribute('ycm-live', ''); return; }
         bar.removeAttribute('ycm-live');
@@ -3512,10 +3542,10 @@
         }, true);
     }
     document.addEventListener('fullscreenchange', () => {
-        if (!document.fullscreenElement) return;
-        // Let YouTube switch to big mode first, then copy its bar metrics.
+        // Entering and leaving fullscreen change the native bar's size (big
+        // mode); let YouTube re-layout first, then copy its bar metrics again.
         setTimeout(() => {
-            document.querySelectorAll('.html5-video-player.ytp-fullscreen').forEach(player => {
+            document.querySelectorAll('#movie_player').forEach(player => {
                 const bar = _ensureFsBar(player);
                 _syncFsBarStyle(player, bar);
                 const v = player.querySelector('video');
