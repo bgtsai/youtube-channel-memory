@@ -89,7 +89,7 @@ Browsers only allow a page to enter fullscreen right after you click or press a 
 
 - Preferences are stored by Tampermonkey (keys starting with `_YSC-`; per-channel values use the channel's `@handle`).
 - Collaboration videos credit several channels; saving applies to all of them.
-- **Restore Default** in the settings resets every option to its default; custom translations are kept.
+- **Restore Default** in the settings resets every option to its default; speeds and captions saved for each channel, and custom translations, are kept.
 
 ## License
 

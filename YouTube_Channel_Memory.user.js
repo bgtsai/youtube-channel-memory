@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Channel Memory
 // @namespace    YouTubeChannelMemory
-// @version      1.2.46
+// @version      1.2.47
 // @description  Per-channel playback speed and subtitle preferences, with audio boost, real-time duration display, start-paused, fullscreen on play / auto-exit near the end, bottom progress bar, hide live chat, and custom language editor.
 // @author       bgtsai
 // @match        https://www.youtube.com/*
@@ -156,7 +156,7 @@
 
             // Danger zone (inside settings panel)
             dangerZoneLabel:         '⚠ Danger Zone',
-            dangerZoneDesc:          'This will erase all your settings and channel speed preferences, and cannot be undone.',
+            dangerZoneDesc:          'Resets every setting to its default. Speeds and captions saved for each channel are kept. This cannot be undone.',
             btnRestoreDefault:       'Restore Default',
 
             // Restore-defaults confirmation dialog
@@ -279,7 +279,7 @@
 
             // 危險區域（設定面板內）
             dangerZoneLabel:         '⚠ 危險區域',
-            dangerZoneDesc:          '這將清除所有設定與頻道速度偏好，且無法復原。',
+            dangerZoneDesc:          '將所有設定恢復為預設值；各頻道已儲存的速度與字幕不會被刪除。此操作無法復原。',
             btnRestoreDefault:       '恢復預設值',
 
             // 恢復預設值確認對話框
