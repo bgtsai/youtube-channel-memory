@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         YouTube Channel Memory
 // @namespace    YouTubeChannelMemory
-// @version      1.2.38
+// @version      1.2.39
 // @description  Per-channel playback speed and subtitle preferences, with audio boost, real-time duration display, optional auto-fullscreen / auto-exit-fullscreen with AHK support, and custom language editor.
-// @author
+// @author       bgtsai
 // @match        https://www.youtube.com/*
 // @grant        GM.setValue
 // @grant        GM.getValue
@@ -12,6 +12,9 @@
 // @run-at       document-start
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=youtube.com
 // @license      MIT
+// @homepageURL  https://github.com/bgtsai/youtube-channel-memory
+// @updateURL    https://raw.githubusercontent.com/bgtsai/youtube-channel-memory/main/YouTube_Channel_Memory.user.js
+// @downloadURL  https://raw.githubusercontent.com/bgtsai/youtube-channel-memory/main/YouTube_Channel_Memory.user.js
 // ==/UserScript==
 
 /**
@@ -19,7 +22,7 @@
  * ======================
  * MIT License
  *
- * Copyright (c) 2025
+ * Copyright (c) 2025 bgtsai
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -108,7 +111,7 @@
     // This constant is referenced in the settings panel UI (Auto Fullscreen row)
     // and in the header JSDoc above.
     // ─────────────────────────────────────────────────────────────────────────
-    const AHK_SCRIPT_URL = 'https://example.com/placeholder';
+    const AHK_SCRIPT_URL = 'https://raw.githubusercontent.com/bgtsai/youtube-channel-memory/main/YouTube_Channel_Memory_Fullscreen.ahk';
 
     // ─────────────────────────────────────────────────────────────────────────
     // LANGUAGE BLOCK
