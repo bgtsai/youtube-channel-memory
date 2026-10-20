@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         YouTube Channel Memory
 // @namespace    YouTubeChannelMemory
-// @version      1.2.40
-// @description  Per-channel playback speed and subtitle preferences, with audio boost, real-time duration display, optional auto-fullscreen / auto-exit-fullscreen with AHK support, and custom language editor.
+// @version      1.2.41
+// @description  Per-channel playback speed and subtitle preferences, with audio boost, real-time duration display, start-paused, fullscreen on play / auto-exit near the end, fullscreen progress bar, hide live chat, and custom language editor.
 // @author       bgtsai
 // @match        https://www.youtube.com/*
 // @grant        GM.setValue
@@ -58,25 +58,17 @@
  *   • Supports collaborative videos with multiple channel credits.
  *   • Audio boost with soft limiter to prevent clipping.
  *   • Optional relative time display (adjusts for current playback speed).
- *   • Auto-fullscreen on video start, and auto-exit fullscreen near video end (requires companion AHK script).
+ *   • Optionally starts new videos paused; enters fullscreen when you press Play, exits near the end.
+ *   • Thin fullscreen progress bar while the player controls are hidden; optional live-chat hiding.
  *   • Full settings panel with color picker and button template editor.
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * AHK (AutoHotkey) Integration
+ * Fullscreen and the browser's user-activation rule
  * ─────────────────────────────────────────────────────────────────────────────
- * The auto-fullscreen and auto-exit-fullscreen features first attempt to
- * enter/exit fullscreen via the YouTube player button. If the browser blocks
- * the request due to interaction policy (i.e. no recent user gesture), the
- * script temporarily prefixes the page title with "[AHK-FS] " as a signal.
- *
- * A companion AutoHotkey script watches for this title prefix and triggers
- * a fullscreen keystroke (F) on behalf of the user, bypassing the browser
- * restriction. The prefix is removed once fullscreen state change is confirmed.
- * The same title prefix is used for both entering and exiting fullscreen,
- * since the AHK companion script sends the same key (F) in both cases.
- *
- * The AHK companion script can be downloaded at:
- *   AHK_SCRIPT_URL (see constant defined at the top of the IIFE below)
+ * Browsers only grant requestFullscreen() shortly after a real click or key
+ * press. Auto-fullscreen therefore runs on the 'play' event that follows the
+ * user's own Play press (see the START-PAUSED / FULLSCREEN section), which
+ * works in Chrome, Edge and Firefox without any extra configuration.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * Developer Notes
@@ -104,15 +96,6 @@
  */
 
 (async () => {
-    // ─────────────────────────────────────────────────────────────────────────
-    // COMPANION SCRIPT URL
-    // Download URL for the AutoHotkey script that enables the auto-fullscreen
-    // fallback feature. Replace this value with the actual URL before publishing.
-    // This constant is referenced in the settings panel UI (Auto Fullscreen row)
-    // and in the header JSDoc above.
-    // ─────────────────────────────────────────────────────────────────────────
-    const AHK_SCRIPT_URL = 'https://raw.githubusercontent.com/bgtsai/youtube-channel-memory/main/YouTube_Channel_Memory_Fullscreen.ahk';
-
     // ─────────────────────────────────────────────────────────────────────────
     // LANGUAGE BLOCK
     // To add a new language, copy this object, replace the string values, and
@@ -148,10 +131,18 @@
             labelShowRelTime:        'Show Relative Time',
             labelColorSelected:      'Color — Selected',
             labelColorNormal:        'Color — Normal',
-            labelAutoFullscreenOnPlay:     'Auto Fullscreen on Play',
+            labelStartPaused:        'Start New Videos Paused',
+            labelStartPausedSub:     'Playlists and autoplay-next keep playing',
+            labelFsProgress:         'Fullscreen Progress Bar',
+            labelFsProgressSub:      'Thin bar while controls are hidden',
+            labelHideChat:           'Hide Live Chat',
+            labelAutoFullscreenOnPlay:     'Fullscreen When I Press Play',
             labelAutoFullscreenOnEnd:      'Auto Exit Fullscreen on End',
-            labelAutoFullscreenNote:       'Both fullscreen features require a companion AHK script —',
-            labelAutoFullscreenLink: 'Download',
+            labelAutoFullscreenNote:       'Works in Chrome, Edge and Firefox with no setup —',
+            labelAutoFullscreenLink: 'Details',
+            fsHelpTitle:             'About Auto Fullscreen',
+            fsHelpDesc:              'Browsers only allow fullscreen right after you click or press a key.',
+            fsHelpBody:              '<p>Fullscreen is entered the moment you press Play, so Chrome, Edge and Firefox need no extra settings.</p><p>Pair it with <b>Start New Videos Paused</b>: every video then starts with your own Play press, so fullscreen always triggers.</p><p>Videos that start on their own (autoplay-next, or with Start Paused off) cannot go fullscreen unless the browser allows it:</p><ul><li>Firefox: in <code>about:config</code> set <code>full-screen-api.allow-trusted-requests-only</code> to <code>false</code>.</li><li>Chrome / Edge: the enterprise policy <code>AutomaticFullscreenAllowedForUrls</code> with <code>https://www.youtube.com</code>.</li></ul>',
             labelButtonTemplates:    'Button Templates',
             labelBtnEdit:            'Edit…',
 
@@ -172,6 +163,7 @@
             rdItemColors:            'Selected & Normal colors',
             rdItemRelTime:           'Show Relative Time',
             rdItemFullscreen:        'Auto Fullscreen on Play & on End',
+            rdItemExtras:            'Start Paused, Fullscreen Progress Bar & Hide Live Chat',
             rdBtnCancel:             'Cancel',
             rdBtnConfirm:            'Restore',
 
@@ -187,10 +179,15 @@
             btPlaceholderSpeed:      '1.0',
 
             // Player control bar buttons
-            playerCCOn:              'On',
-            playerCCOff:             'Off',
             playerSetTitle:          'Set current speed and captions as default for this channel',
-            playerSetLabel:          'set',
+            playerSavedToast:        'Saved: {speed} · Captions {cc}',
+            playerPillTitle:         'Default captions for this channel: {cc} (click to change)',
+            playerPillToast:         'Saved: Captions {cc}',
+            playerCCTitle:           'Subtitles/closed captions',
+            playerPrefsTitle:        'YouTube Channel Memory settings',
+            playerCCStateOn:         'on',
+            playerCCStateOff:        'off',
+            playerCCStateNone:       'not set',
 
             // Settings panel — Custom Language row
             labelCustomLang:         'Custom Language',
@@ -251,10 +248,18 @@
             labelShowRelTime:        '顯示實際時間',
             labelColorSelected:      '顏色 — 已選取',
             labelColorNormal:        '顏色 — 一般',
-            labelAutoFullscreenOnPlay:     '播放時自動全螢幕',
+            labelStartPaused:        '開啟新影片時先暫停',
+            labelStartPausedSub:     '播放清單與自動播放下一部不受影響',
+            labelFsProgress:         '全螢幕底部進度條',
+            labelFsProgressSub:      '控制列隱藏時顯示',
+            labelHideChat:           '隱藏直播聊天室',
+            labelAutoFullscreenOnPlay:     '按下播放時自動全螢幕',
             labelAutoFullscreenOnEnd:      '結束時自動退出全螢幕',
-            labelAutoFullscreenNote:       '全螢幕功能均需搭配 AHK 腳本 —',
-            labelAutoFullscreenLink: '下載',
+            labelAutoFullscreenNote:       'Chrome、Edge、Firefox 皆免設定 —',
+            labelAutoFullscreenLink: '說明',
+            fsHelpTitle:             '自動全螢幕說明',
+            fsHelpDesc:              '瀏覽器只允許在你點擊或按鍵之後進入全螢幕。',
+            fsHelpBody:              '<p>本腳本在你按下播放的那一刻進入全螢幕，所以 Chrome、Edge、Firefox 都不需要額外設定。</p><p>建議搭配<b>「開啟新影片時先暫停」</b>：每支影片都由你按下播放，全螢幕就一定能觸發。</p><p>自己開始播放的影片（自動播放下一部，或沒開「先暫停」時）無法進入全螢幕，除非瀏覽器允許：</p><ul><li>Firefox：在 <code>about:config</code> 把 <code>full-screen-api.allow-trusted-requests-only</code> 設為 <code>false</code>。</li><li>Chrome／Edge：企業政策 <code>AutomaticFullscreenAllowedForUrls</code> 加入 <code>https://www.youtube.com</code>。</li></ul>',
             labelButtonTemplates:    '速度按鈕範本',
             labelBtnEdit:            '編輯…',
 
@@ -275,6 +280,7 @@
             rdItemColors:            '已選取與一般顏色',
             rdItemRelTime:           '顯示實際時間',
             rdItemFullscreen:        '自動全螢幕（播放 / 結束）',
+            rdItemExtras:            '先暫停、全螢幕進度條、隱藏直播聊天室',
             rdBtnCancel:             '取消',
             rdBtnConfirm:            '恢復',
 
@@ -290,10 +296,15 @@
             btPlaceholderSpeed:      '1.0',
 
             // 播放器控制列按鈕
-            playerCCOn:              'On',
-            playerCCOff:             'Off',
             playerSetTitle:          '將目前速度與字幕設為此頻道的預設值',
-            playerSetLabel:          'set',
+            playerSavedToast:        '已儲存：{speed}・字幕{cc}',
+            playerPillTitle:         '此頻道的預設字幕：{cc}（點擊切換並儲存）',
+            playerPillToast:         '已儲存：字幕{cc}',
+            playerCCTitle:           '字幕',
+            playerPrefsTitle:        'YouTube 頻道記憶設定',
+            playerCCStateOn:         '開',
+            playerCCStateOff:        '關',
+            playerCCStateNone:       '未設定',
 
             // 設定面板 — 自訂語系列
             labelCustomLang:         '自訂語系',
@@ -544,18 +555,28 @@
         AUDIO_BOOST: 1,
 
         /**
-         * When true, attempts to enter fullscreen automatically when a video starts.
-         * Falls back to setting the page title to "[AHK-FS] …" as a signal for
-         * AutoHotkey scripts that cannot trigger fullscreen via JS alone.
+         * When true, a video opened from a new tab or by the user's own navigation
+         * starts paused. Playlist / autoplay-next continuations keep playing.
+         */
+        START_PAUSED: false,
+
+        /**
+         * When true, enters fullscreen on the 'play' event that follows the user's
+         * own Play press (the browser grants fullscreen right after a real input).
          */
         FULLSCREEN_ON_START: false,
 
         /**
          * When true, exits fullscreen automatically when a video nears its end
-         * (within 5 seconds of the total duration). Falls back to setting the page
-         * title to "[AHK-FS] …" as a signal for AutoHotkey scripts.
+         * (within 5 seconds of the total duration). Exiting needs no user input.
          */
         FULLSCREEN_ON_END: false,
+
+        /** When true, shows a thin progress bar at the bottom while fullscreen controls are hidden. */
+        FS_PROGRESS_BAR: true,
+
+        /** When true, hides the live-chat panel (ytd-live-chat-frame). Playlist panel is unaffected. */
+        HIDE_LIVE_CHAT: false,
 
         /**
          * Font size for the speed buttons and CC on/off labels in the player bar.
@@ -809,8 +830,12 @@
             #ysc-settings-panel .ysc-row:has(+ .ysc-danger-zone)::after { display: none; }
             #ysc-settings-panel .ysc-lbl { font-size: 12px; color: ${t.lbl}; }
             #ysc-settings-panel .ysc-lbl small { display: block; font-size: 11px; color: ${t.lblSub}; margin-top: 1px; }
-            #ysc-settings-panel .ysc-ahk-link { color: inherit; opacity: 0.7; }
-            #ysc-settings-panel .ysc-ahk-link:hover { opacity: 1; }
+            #ysc-settings-panel .ysc-help-link { color: inherit; opacity: 0.7; }
+            #ysc-settings-panel .ysc-help-link:hover { opacity: 1; }
+            #ysc-cl-confirm-dialog .cld-rich p { margin: 0 0 8px; }
+            #ysc-cl-confirm-dialog .cld-rich ul { margin: 0; padding-left: 18px; }
+            #ysc-cl-confirm-dialog .cld-rich li { margin-bottom: 4px; }
+            #ysc-cl-confirm-dialog .cld-rich code { font-size: 11px; word-break: break-all; }
             #ysc-settings-panel .ysc-note {
                 padding: 2px 16px 8px; font-size: 11px; color: ${t.lblSub};
             }
@@ -1430,9 +1455,6 @@
         `;
 
         // Build the panel HTML. All visible strings come from LANG.
-        function makeToggle(val) {
-            return `<div class="ysc-toggle${val ? ' on' : ''}"></div>`;
-        }
         function makeStepper(val, step) {
             return `<div class="ysc-stepper">
                 <button class="ysc-stepper-btn" data-step="-${step}">−</button>
@@ -1467,11 +1489,23 @@
                 <div class="ysc-lbl">${LANG.labelAudioBoost}<small>${LANG.labelAudioBoostSub}</small></div>
                 ${makeStepper(cur['AUDIO_BOOST'], 0.5)}
               </div>
+              <div class="ysc-row">
+                <div class="ysc-lbl">${LANG.labelStartPaused}<small>${LANG.labelStartPausedSub}</small></div>
+                <div class="ysc-toggle${cur['START_PAUSED'] ? ' on' : ''}" id="ysc-tg-startpaused"></div>
+              </div>
               <div class="ysc-sep"></div>
               <div class="ysc-group">${LANG.sectionDisplay}</div>
               <div class="ysc-row">
                 <div class="ysc-lbl">${LANG.labelShowRelTime}</div>
-                ${makeToggle(cur['SHOW_RELATIVE_TIME'])}
+                <div class="ysc-toggle${cur['SHOW_RELATIVE_TIME'] ? ' on' : ''}" id="ysc-tg-reltime"></div>
+              </div>
+              <div class="ysc-row">
+                <div class="ysc-lbl">${LANG.labelFsProgress}<small>${LANG.labelFsProgressSub}</small></div>
+                <div class="ysc-toggle${cur['FS_PROGRESS_BAR'] ? ' on' : ''}" id="ysc-tg-fsbar"></div>
+              </div>
+              <div class="ysc-row">
+                <div class="ysc-lbl">${LANG.labelHideChat}</div>
+                <div class="ysc-toggle${cur['HIDE_LIVE_CHAT'] ? ' on' : ''}" id="ysc-tg-hidechat"></div>
               </div>
               <div class="ysc-row">
                 <div class="ysc-lbl">${LANG.labelColorSelected}</div>
@@ -1490,14 +1524,14 @@
 
               <div class="ysc-sep"></div>
               <div class="ysc-group">${LANG.sectionAutomation}</div>
-              <div class="ysc-note">${LANG.labelAutoFullscreenNote} <a class="ysc-ahk-link" href="${AHK_SCRIPT_URL}" target="_blank" rel="noopener">${LANG.labelAutoFullscreenLink}</a></div>
+              <div class="ysc-note">${LANG.labelAutoFullscreenNote} <a class="ysc-help-link" id="ysc-fs-help" href="#">${LANG.labelAutoFullscreenLink}</a></div>
               <div class="ysc-row">
                 <div class="ysc-lbl">${LANG.labelAutoFullscreenOnPlay}</div>
-                ${makeToggle(cur['FULLSCREEN_ON_START'])}
+                <div class="ysc-toggle${cur['FULLSCREEN_ON_START'] ? ' on' : ''}" id="ysc-tg-fsstart"></div>
               </div>
               <div class="ysc-row">
                 <div class="ysc-lbl">${LANG.labelAutoFullscreenOnEnd}</div>
-                ${makeToggle(cur['FULLSCREEN_ON_END'])}
+                <div class="ysc-toggle${cur['FULLSCREEN_ON_END'] ? ' on' : ''}" id="ysc-tg-fsend"></div>
               </div>
 
               <div class="ysc-sep"></div>
@@ -1546,7 +1580,8 @@
             const labels = [
                 LANG.labelDefaultSpeed, LANG.labelAudioBoost, LANG.labelShowRelTime,
                 LANG.labelColorSelected, LANG.labelColorNormal,
-                LANG.labelAutoFullscreenOnPlay, LANG.labelAutoFullscreenOnEnd, LANG.labelButtonTemplates
+                LANG.labelAutoFullscreenOnPlay, LANG.labelAutoFullscreenOnEnd, LANG.labelButtonTemplates,
+                LANG.labelStartPaused, LANG.labelFsProgress, LANG.labelHideChat
             ];
             let maxLblW = 0;
             labels.forEach(txt => {
@@ -2589,17 +2624,20 @@
         // globals, then refreshes the player UI to reflect changes immediately.
         panel.querySelector('.ysc-btn-save').addEventListener('click', async () => {
             const steppers = panel.querySelectorAll('.ysc-stepper .ysc-stepper-val');
-            const toggles  = panel.querySelectorAll('.ysc-toggle');
+            const isOn     = id => document.getElementById(id).classList.contains('on');
 
             const newSpeed   = parseFloat(steppers[0].value);
             const newBoost   = parseFloat(steppers[1].value);
-            const newRelTime = toggles[0].classList.contains('on');
+            const newRelTime = isOn('ysc-tg-reltime');
             const selRow     = document.getElementById('ysc-color-sel-row');
             const norRow     = document.getElementById('ysc-color-nor-row');
             const newColSel  = selRow.dataset.hex || '';
             const newColNor  = norRow.dataset.hex || '';
-            const newFS      = toggles[1].classList.contains('on');
-            const newFSEnd   = toggles[2].classList.contains('on');
+            const newFS      = isOn('ysc-tg-fsstart');
+            const newFSEnd   = isOn('ysc-tg-fsend');
+            const newPaused  = isOn('ysc-tg-startpaused');
+            const newFsBar   = isOn('ysc-tg-fsbar');
+            const newHideCh  = isOn('ysc-tg-hidechat');
             const newUseCL   = document.getElementById('ysc-toggle-cl').classList.contains('on');
 
             // Persist all changed settings in parallel to avoid sequential
@@ -2612,6 +2650,9 @@
             if (newColNor)                           saves.push(GM.setValue('_YSC-COLOR_NORMAL',       newColNor));
             saves.push(GM.setValue('_YSC-FULLSCREEN_ON_START', newFS));
             saves.push(GM.setValue('_YSC-FULLSCREEN_ON_END',   newFSEnd));
+            saves.push(GM.setValue('_YSC-START_PAUSED',        newPaused));
+            saves.push(GM.setValue('_YSC-FS_PROGRESS_BAR',     newFsBar));
+            saves.push(GM.setValue('_YSC-HIDE_LIVE_CHAT',      newHideCh));
             saves.push(GM.setValue('_YSC-BUTTON_TEMPLATES',   JSON.stringify(cur['BUTTON_TEMPLATES'])));
             saves.push(GM.setValue('_YSC-USE_CUSTOM_LANG',    newUseCL));
             await Promise.all(saves);
@@ -2628,7 +2669,11 @@
             if (newColNor) window['COLOR_NORMAL']   = newColNor;
             window['FULLSCREEN_ON_START'] = newFS;
             window['FULLSCREEN_ON_END']   = newFSEnd;
+            window['START_PAUSED']        = newPaused;
+            window['FS_PROGRESS_BAR']     = newFsBar;
+            window['HIDE_LIVE_CHAT']      = newHideCh;
             window['BUTTON_TEMPLATES']    = cur['BUTTON_TEMPLATES'];
+            _applyPageFlags();
 
             // If the custom language toggle changed, rebuild LANG and clear the
             // panel width cache so the next open re-measures with the new strings.
@@ -2640,6 +2685,29 @@
 
             closePanel();
             refreshContainers();
+        });
+
+        // ── Auto-fullscreen help dialog ──────────────────────────────────────
+        // Reuses the custom-language confirm dialog styles.
+        panel.querySelector('#ysc-fs-help').addEventListener('click', e => {
+            e.preventDefault();
+            document.getElementById('ysc-cl-confirm-overlay')?.remove();
+            const ov = document.createElement('div');
+            ov.id = 'ysc-cl-confirm-overlay';
+            ov.innerHTML = _trustedHTML(`
+                <div id="ysc-cl-confirm-dialog">
+                    <div class="cld-hdr">
+                        <div class="cld-title">${LANG.fsHelpTitle}</div>
+                        <div class="cld-desc">${LANG.fsHelpDesc}</div>
+                    </div>
+                    <div class="cld-body cld-rich">${LANG.fsHelpBody}</div>
+                    <div class="cld-footer">
+                        <button class="cld-btn cld-btn-confirm" id="ysc-cld-ok">${LANG.clImportOkBtn}</button>
+                    </div>
+                </div>`);
+            (document.getElementById('ytd-app') || document.body).appendChild(ov);
+            ov.querySelector('#ysc-cld-ok').addEventListener('click', () => ov.remove());
+            ov.addEventListener('click', ev => { if (ev.target === ov) ov.remove(); });
         });
 
         // ── Restore defaults handler ─────────────────────────────────────────
@@ -2661,6 +2729,7 @@
                         <div class="rd-item">${LANG.rdItemColors}</div>
                         <div class="rd-item">${LANG.rdItemRelTime}</div>
                         <div class="rd-item">${LANG.rdItemFullscreen}</div>
+                        <div class="rd-item">${LANG.rdItemExtras}</div>
                         <div class="rd-note">${LANG.rdCustomLangNote}</div>
                     </div>
                     <div class="rd-footer">
@@ -2681,6 +2750,7 @@
                 for (let name in defaults) {
                     window[name] = (name === 'BUTTON_TEMPLATES') ? JSON.parse(defaults[name]) : defaults[name];
                 }
+                _applyPageFlags();
                 closePanel();
                 refreshContainers();
             });
@@ -2765,7 +2835,7 @@
 
         // Move the selection highlight (and ycm-sel marker, read by
         // refreshContainers) from every speed button to the clicked one.
-        btn.parent().children(':not([title]):not([ycm-btn^="cc-"])').css('color', COLOR_NORMAL).removeAttr('ycm-sel');
+        btn.parent().children('span[ycm-speed]').css('color', COLOR_NORMAL).removeAttr('ycm-sel');
         btn.css('color', COLOR_SELECTED).attr('ycm-sel', 'true');
 
         if (!$(vidSel).length) rewireMonitoredPlayers();
@@ -2782,6 +2852,7 @@
         if (SHOW_RELATIVE_TIME) {
             try { updateRelativeTime(vid); } catch (_) { /* non-fatal */ }
         }
+        updateBookmarkState(slot);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -2793,9 +2864,10 @@
     // MutationObserver on caption segments (for the "disable" case) to
     // reliably apply the user's saved caption preference.
     //
-    // Visual state uses two independent signals:
-    //   • Color  — reflects the CURRENT live state (what is actually on/off now)
-    //   • Underline — reflects the SAVED state (what was last committed with "set")
+    // Visual state uses two independent widgets:
+    //   • Caption button — the CURRENT state, mirrored from the native button
+    //     (red segment on the icon's bottom edge = on; dimmed = no captions)
+    //   • Pill switch   — the SAVED default for the channel (ycm-cc-saved)
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
@@ -2825,17 +2897,13 @@
             window._ysc_cc_stop[id]('user manual toggle via cc button');
         }
         let container = $('#ycm-bar' + id);
-        let ccOnBtn  = container.find('span[ycm-btn="cc-on"]');
-        let ccOffBtn = container.find('span[ycm-btn="cc-off"]');
 
+        /** Records the desired state (read by saveChannelDefaults as a fallback). */
         function updateColorOnly(activeState) {
-            ccOnBtn.css('color',  activeState  ? COLOR_SELECTED : COLOR_NORMAL);
-            ccOffBtn.css('color', !activeState ? COLOR_SELECTED : COLOR_NORMAL);
             container.attr('ycm-cc-live', activeState ? 'on' : 'off');
+            syncCCVisuals(id);
         }
 
-        // Immediately reflect the desired state in red — regardless of whether
-        // YouTube's subtitle button responds.  Red = what the user WANTS.
         updateColorOnly(shouldBeOn);
         let btn = getPlayerSubtitleBtn(id);
 
@@ -2861,44 +2929,24 @@
     }
 
     /**
-     * Reads the current aria-pressed state of the native subtitle button,
-     * updates the On/Off button colors, and records the live state on the
-     * container as ycm-cc-live="on"|"off" so saveChannelDefaults can read it
-     * without relying on color string comparisons.
-     * Does not change underlines (those reflect saved state only).
+     * Re-renders the caption button and pill from the native button state and
+     * the saved default, then refreshes the bookmark's changed-state dot.
      *
      * @param {number} id  ycm-bar numeric id.
      */
     function syncCCVisuals(id) {
-        let container = $('#ycm-bar' + id);
-        if (container.length === 0) return;
-        // Use ycm-cc-live (desired state set by user action or saved preference)
-        // for the red colour indicator.  aria-pressed reflects YouTube's actual
-        // state and may differ from what the user wants (e.g. video has no subs).
-        let live = container.attr('ycm-cc-live');
-        if (live === undefined || live === null) return; // no preference set yet
-        let isOn = live === 'on';
-        let ccOnBtn  = container.find('span[ycm-btn="cc-on"]');
-        let ccOffBtn = container.find('span[ycm-btn="cc-off"]');
-        ccOnBtn.css('color',  isOn  ? COLOR_SELECTED : COLOR_NORMAL);
-        ccOffBtn.css('color', !isOn ? COLOR_SELECTED : COLOR_NORMAL);
+        const barEl = document.getElementById('ycm-bar' + id);
+        if (!barEl) return;
+        _renderCaptionWidgets(barEl, id);
+        updateBookmarkState(id);
     }
 
-    /**
-     * Attaches a MutationObserver to the native subtitle button so that our
-     * color highlight stays in sync whenever YouTube changes the button state
-     * (e.g. when the user clicks the native button directly).
-     *
-     * Guards against attaching duplicate observers with the ycm-observed attribute.
-     *
-     * @param {number} id  ycm-bar numeric id.
-     */
     /**
      * Attaches observers to the native subtitle button:
      *
      * 1. MutationObserver on aria-pressed: whenever the subtitle state changes
-     *    (for any reason — our code, YouTube auto-load, or user click), update
-     *    ycm-cc-live and sync our cc-on/cc-off colours.
+     *    or its icon changes (for any reason — our code, YouTube auto-load, the
+     *    C shortcut), update ycm-cc-live and re-render our caption widgets.
      *
      * 2. mousedown listener with isTrusted: detects genuine physical user clicks
      *    on the native button. programmatic element.click() does NOT produce a
@@ -2915,14 +2963,20 @@
         if (btn.length && !btn.attr('ycm-observed')) {
             btn.attr('ycm-observed', 'true');
 
-            // 1. Colour sync: update ycm-cc-live whenever aria-pressed changes.
+            // 1. Visual sync: aria-pressed and icon (availability) changes.
+            let pending = false;
             let observer = new MutationObserver(function() {
-                let isOn = btn.attr('aria-pressed') === 'true';
-                let container = $('#ycm-bar' + id);
-                container.attr('ycm-cc-live', isOn ? 'on' : 'off');
-                syncCCVisuals(id);
+                if (pending) return;
+                pending = true;
+                requestAnimationFrame(() => {
+                    pending = false;
+                    let isOn = btn.attr('aria-pressed') === 'true';
+                    $('#ycm-bar' + id).attr('ycm-cc-live', isOn ? 'on' : 'off');
+                    syncCCVisuals(id);
+                });
             });
-            observer.observe(btn[0], { attributes: true, attributeFilter: ['aria-pressed', 'style'] });
+            observer.observe(btn[0], { attributes: true, childList: true, subtree: true,
+                                       attributeFilter: ['aria-pressed', 'aria-disabled', 'style', 'fill-opacity', 'd'] });
 
             // 2. Controller stop: genuine user mousedown on the native button.
             btn[0].addEventListener('mousedown', function(e) {
@@ -3133,7 +3187,7 @@
      * it using startCCController. Also sets up early click guards to prevent the
      * controller from overriding a user action that occurs before playing starts.
      *
-     * Underlines are drawn immediately (UI-first) so the user sees their saved
+     * The pill is updated immediately (UI-first) so the user sees their saved
      * preference without waiting for the video to begin.
      *
      * @param {number} id           ycm-bar numeric id.
@@ -3148,24 +3202,16 @@
             if (val !== null) { savedState = val; break; }
         }
 
+        let container = $('#ycm-bar' + id);
+        if (container.length) {
+            // Pill shows the saved default immediately (before the video starts).
+            if (savedState === null) container[0].removeAttribute('ycm-cc-saved');
+            else container[0].setAttribute('ycm-cc-saved', savedState ? 'on' : 'off');
+            syncCCVisuals(id);
+        }
+
         if (savedState !== null) {
-            // Draw underline immediately (saved state indicator) before the video starts.
-            let container = $('#ycm-bar' + id);
-            let ccOnBtn = container.find('span[ycm-btn="cc-on"]');
-            let ccOffBtn = container.find('span[ycm-btn="cc-off"]');
-
-            ccOnBtn.css('text-decoration', '').removeAttr('ycm-active');
-            ccOffBtn.css('text-decoration', '').removeAttr('ycm-active');
-
-            if (savedState) {
-                ccOnBtn.css('text-decoration', 'underline').css('color', COLOR_SELECTED).attr('ycm-active', 'true');
-                ccOffBtn.css('text-decoration', '').css('color', COLOR_NORMAL).removeAttr('ycm-active');
-                container.attr('ycm-cc-live', 'on');
-            } else {
-                ccOffBtn.css('text-decoration', 'underline').css('color', COLOR_SELECTED).attr('ycm-active', 'true');
-                ccOnBtn.css('text-decoration', '').css('color', COLOR_NORMAL).removeAttr('ycm-active');
-                container.attr('ycm-cc-live', 'off');
-            }
+            container.attr('ycm-cc-live', savedState ? 'on' : 'off');
 
             // Register click guards before the controller starts so that any user
             // interaction between now and the first 'playing' event is captured.
@@ -3191,10 +3237,8 @@
                     if (e.isTrusted) onEarlyUserClick('native subtitle button');
                 });
             }
-            let ccOnEl  = container.find('span[ycm-btn="cc-on"]')[0];
-            let ccOffEl = container.find('span[ycm-btn="cc-off"]')[0];
-            if (ccOnEl)  addEarlyClickListener(ccOnEl,  function(e) { if (e.isTrusted) onEarlyUserClick('cc-on button');  });
-            if (ccOffEl) addEarlyClickListener(ccOffEl, function(e) { if (e.isTrusted) onEarlyUserClick('cc-off button'); });
+            let ccEl = container.find('[ycm-btn="cc"]')[0];
+            if (ccEl) addEarlyClickListener(ccEl, function(e) { if (e.isTrusted) onEarlyUserClick('caption button'); });
 
             // Abort if the user already acted during the async caption lookup above.
             if (pendingStop) return;
@@ -3205,8 +3249,8 @@
         // Start observing the native button for state changes after a brief delay.
         setTimeout(() => { observeCCButton(id); }, 1000);
 
-        // If there is no saved preference, show red based on YouTube's current
-        // subtitle state so that cc-on or cc-off is always highlighted.
+        // If there is no saved preference, record YouTube's current subtitle
+        // state as the live state so the caption button is rendered correctly.
         if (savedState === null) {
             // The player button may not reflect the final state immediately;
             // try once now and once after a short delay as a fallback.
@@ -3216,11 +3260,8 @@
                 if (container.attr('ycm-cc-live') !== undefined) return; // user already clicked
                 let btn = getPlayerSubtitleBtn(id);
                 let isOn = btn.length ? btn.attr('aria-pressed') === 'true' : false;
-                let ccOnBtn  = container.find('span[ycm-btn="cc-on"]');
-                let ccOffBtn = container.find('span[ycm-btn="cc-off"]');
-                ccOnBtn.css('color',  isOn  ? COLOR_SELECTED : COLOR_NORMAL);
-                ccOffBtn.css('color', !isOn ? COLOR_SELECTED : COLOR_NORMAL);
                 container.attr('ycm-cc-live', isOn ? 'on' : 'off');
+                syncCCVisuals(id);
             }
             initNoCCSavedState();
             setTimeout(initNoCCSavedState, 1500);
@@ -3228,155 +3269,260 @@
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // AUTO-FULLSCREEN
+    // START-PAUSED / FULLSCREEN ON PLAY
     //
-    // Attempts to enter fullscreen when a video loads, subject to two guards:
+    // Browsers grant requestFullscreen() only for a short window after a real
+    // click or key press ("transient user activation"). So instead of trying
+    // to go fullscreen when a video starts by itself, we:
     //
-    //   1. User-click guard: if the user has clicked anything since the last
-    //      page navigation, auto-fullscreen is skipped. This prevents the
-    //      feature from hijacking focus when the user is already interacting.
-    //      Uses capture-phase mousedown so it fires before any element handler.
+    //   1. Optionally hold every newly opened video paused (START_PAUSED).
+    //      "Newly opened" = the initial page load (incl. links opened in a new
+    //      tab) or an in-site navigation that the user just triggered. Playlist
+    //      / autoplay-next navigations happen without user input and are left
+    //      alone, so they keep playing.
+    //   2. When the user presses Play, the 'play' event arrives inside that
+    //      activation window, and clicking YouTube's own fullscreen button
+    //      succeeds in Chrome, Edge and Firefox without extra settings.
     //
-    //   2. AHK fallback: if document.requestFullscreen() is blocked by browser
-    //      policy, the page title is prefixed with "[AHK-FS] " as a signal for
-    //      AutoHotkey scripts that can trigger fullscreen via keyboard shortcut.
-    //      The prefix is removed as soon as fullscreen is confirmed.
+    // All of this runs from capture-phase listeners on document, because media
+    // events do not bubble and YouTube may start playback before our per-player
+    // setup (initPlayers) has run.
     // ─────────────────────────────────────────────────────────────────────────
-    const FS_AHK_PREFIX      = '[AHK-FS] '; // Title prefix used as AHK enter-fullscreen signal.
-    const FS_AHK_EXIT_PREFIX = '[AHK-FS] '; // Title prefix used as AHK exit-fullscreen signal.
-    // TEST (v1.2.40): AHK title signal switched off while trying Firefox's
-    // about:config route (full-screen-api.allow-trusted-requests-only = false),
-    // where clicking YouTube's own fullscreen button is enough on its own.
-    const FS_AHK_SIGNAL_ENABLED = false;
 
-    /** Tracks whether the user has clicked since the last yt-navigate-finish event. */
-    window._ysc_clicked_since_nav = false;
-    document.addEventListener('mousedown', function(e) {
-        if (e.isTrusted) window._ysc_clicked_since_nav = true;
+    /** Timestamp (performance.now) of the most recent trusted pointer/key input. */
+    let _lastUserInput = -Infinity;
+    for (const type of ['pointerdown', 'keydown']) {
+        document.addEventListener(type, e => { if (e.isTrusted) _lastUserInput = performance.now(); }, true);
+    }
+
+    /** Hold state: while armed, playback that the user did not start is paused. */
+    const _playHold = { armed: true, since: performance.now() };
+
+    document.addEventListener('yt-navigate-start', () => {
+        // A navigation right after user input is the user opening a video;
+        // one without input is a playlist / autoplay-next continuation.
+        const byUser = performance.now() - _lastUserInput < 3000;
+        _playHold.armed = byUser;
+        _playHold.since = performance.now();
+        console.log('YSC: yt-navigate-start, play hold ' + (byUser ? 'armed' : 'released (autoplay)'));
+    });
+
+    /** True if the user pressed something after the hold was armed, within `ms`. */
+    function _userStartedPlayback(ms = 1500) {
+        return _lastUserInput > _playHold.since && performance.now() - _lastUserInput < ms;
+    }
+
+    document.addEventListener('play', e => {
+        const video = e.target;
+        if (!(video instanceof HTMLVideoElement) || !video.closest('#movie_player, #c4-player')) return;
+
+        const byUser = _userStartedPlayback();
+        if (window['START_PAUSED'] && _playHold.armed && !byUser) {
+            console.log('YSC: Start paused — holding playback until the user presses Play.');
+            video.pause();
+            return;
+        }
+        if (byUser) _playHold.armed = false;
+        tryAutoFullscreen(video);
     }, true);
-    document.addEventListener('yt-navigate-start', function() {
-        window._ysc_clicked_since_nav = false;
-        console.log('YSC: yt-navigate-start, resetting click guard.');
-    });
-    document.addEventListener('yt-navigate-finish', function() {
-        window._ysc_clicked_since_nav = false;
-        console.log('YSC: yt-navigate-finish, resetting click guard.');
-    });
 
     /**
-     * Attempts to enter fullscreen for the given video.
-     * Skips if: fullscreen is disabled, already in fullscreen, video already
-     * processed (ycm-fs-done), or the user has clicked since navigation.
+     * Enters fullscreen by clicking YouTube's own fullscreen button.
+     * Succeeds when called within the user-activation window that follows a
+     * Play press; a rejected attempt is harmless and is retried on the next
+     * play. ycm-fs-done is only set after fullscreen actually happened, so
+     * leaving fullscreen and pressing Play again does not re-enter it.
      *
-     * @param {HTMLVideoElement} video  The video element to fullscreen.
+     * @param {HTMLVideoElement} video  The video element that started playing.
      */
     function tryAutoFullscreen(video) {
         if (!window['FULLSCREEN_ON_START']) return;
         if (video.getAttribute('ycm-fs-done')) return;
+        if (document.fullscreenElement) { video.setAttribute('ycm-fs-done', 'true'); return; }
 
-        if (document.fullscreenElement) {
-            video.setAttribute('ycm-fs-done', 'true');
-            document.title = document.title.replace(FS_AHK_PREFIX, '');
-            return;
-        }
-
-        if (window._ysc_clicked_since_nav) {
-            console.log('YSC: User clicked since last navigation, skipping auto fullscreen.');
-            video.setAttribute('ycm-fs-done', 'true');
-            return;
-        }
-
-        console.log('YSC: Attempting Auto Fullscreen...');
-
-        let player = $(video).closest('#movie_player, .html5-video-player');
-        let fsBtn = player.find('.ytp-fullscreen-button');
-        if (fsBtn.length) fsBtn[0].click();
-
-        let loopCount = 0;
-        let fsIntv = setInterval(() => {
-            // Cancel immediately if the user clicks during the interval.
-            if (window._ysc_clicked_since_nav) {
-                console.log('YSC: User interaction detected during fullscreen interval, cancelling.');
-                clearInterval(fsIntv);
-                document.title = document.title.replace(FS_AHK_PREFIX, '');
-                return;
-            }
-            if (document.fullscreenElement) {
-                console.log('YSC: Fullscreen detected. Cleaning title.');
-                document.title = document.title.replace(FS_AHK_PREFIX, '');
-                video.setAttribute('ycm-fs-done', 'true');
-                clearInterval(fsIntv);
-                return;
-            }
-            // After 2 failed attempts, set the AHK signal title prefix.
-            if (FS_AHK_SIGNAL_ENABLED && loopCount > 1 && !document.title.includes(FS_AHK_PREFIX)) {
-                console.log('YSC: Adding AHK-FS trigger.');
-                document.title = FS_AHK_PREFIX + document.title;
-            }
-            loopCount++;
-            if (loopCount > 20) {
-                clearInterval(fsIntv);
-                document.title = document.title.replace(FS_AHK_PREFIX, '');
-            }
+        const fsBtn = $(video).closest('#movie_player, .html5-video-player').find('.ytp-fullscreen-button');
+        if (!fsBtn.length) return;
+        console.log('YSC: Attempting auto fullscreen.');
+        fsBtn[0].click();
+        setTimeout(() => {
+            if (document.fullscreenElement) video.setAttribute('ycm-fs-done', 'true');
+            else console.log('YSC: Fullscreen was not granted (no recent user input).');
         }, 500);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // AUTO EXIT FULLSCREEN
     // Called from a timeupdate listener whenever the remaining playback time
-    // falls within 5 seconds of the total duration.  Skips if the feature is
-    // disabled, already outside fullscreen, or the video has already triggered
-    // an exit for the current source (ycm-fs-end-done attribute).
-    //
-    // Follows the same two-step pattern as tryAutoFullscreen:
-    //   1. Click the fullscreen toggle button directly.
-    //   2. If fullscreen is still active after two polling ticks, prefix the
-    //      page title with FS_AHK_EXIT_PREFIX so the companion AHK script can
-    //      send an F keystroke as a fallback.
+    // falls within 5 seconds of the total duration. Exiting fullscreen does
+    // not require user activation, so a single click on the toggle is enough.
+    // ycm-fs-end-done prevents repeated exits for the same source.
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
      * Attempts to exit fullscreen when a video nears its end.
-     * Skips if: exit-fullscreen is disabled, not currently in fullscreen, or
-     * the video has already triggered an exit for the current source.
      *
      * @param {HTMLVideoElement} video  The video element being monitored.
      */
     function tryAutoExitFullscreen(video) {
         if (!window['FULLSCREEN_ON_END']) return;
         if (video.getAttribute('ycm-fs-end-done')) return;
-
-        if (!document.fullscreenElement) {
-            video.setAttribute('ycm-fs-end-done', 'true');
-            return;
-        }
-
         video.setAttribute('ycm-fs-end-done', 'true');
-        console.log('YSC: Attempting Auto Exit Fullscreen...');
+        if (!document.fullscreenElement) return;
 
-        let player = $(video).closest('#movie_player, .html5-video-player');
-        let fsBtn = player.find('.ytp-fullscreen-button');
+        console.log('YSC: Attempting auto exit fullscreen.');
+        const fsBtn = $(video).closest('#movie_player, .html5-video-player').find('.ytp-fullscreen-button');
         if (fsBtn.length) fsBtn[0].click();
-
-        let loopCount = 0;
-        let fsExitIntv = setInterval(() => {
-            if (!document.fullscreenElement) {
-                console.log('YSC: Fullscreen exited. Cleaning title.');
-                document.title = document.title.replace(FS_AHK_EXIT_PREFIX, '');
-                clearInterval(fsExitIntv);
-                return;
-            }
-            if (FS_AHK_SIGNAL_ENABLED && loopCount > 1 && !document.title.includes(FS_AHK_EXIT_PREFIX)) {
-                console.log('YSC: Adding AHK-EFS trigger.');
-                document.title = FS_AHK_EXIT_PREFIX + document.title;
-            }
-            loopCount++;
-            if (loopCount > 20) {
-                clearInterval(fsExitIntv);
-                document.title = document.title.replace(FS_AHK_EXIT_PREFIX, '');
-            }
+        setTimeout(() => {
+            if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
         }, 500);
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // PAGE-LEVEL FLAGS & STYLES
+    // Global CSS for the player bar widgets, the fullscreen progress bar and
+    // the live-chat hiding switch. Features are toggled through attributes on
+    // <html> so the settings panel can switch them without a reload.
+    // ─────────────────────────────────────────────────────────────────────────
+    const _pageStyle = document.createElement('style');
+    _pageStyle.id = 'ycm-page-style';
+    _pageStyle.textContent = `
+        [id^="ycm-bar"] { --ycm-s: 1; }
+        .ytp-big-mode [id^="ycm-bar"] { --ycm-s: 1.5; }
+        [id^="ycm-bar"] .ycm-ico { width: calc(24px * var(--ycm-s)); height: calc(24px * var(--ycm-s)); display: block; flex-shrink: 0; cursor: pointer; overflow: visible; }
+        [id^="ycm-bar"] [ycm-btn="bookmark"] { display: inline-flex; margin-right: 10px; cursor: pointer; }
+        [id^="ycm-bar"] [ycm-btn="bookmark"] .ycm-bm-fill { opacity: 0; }
+        [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-bm="saved"] .ycm-bm-fill,
+        [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-anim] .ycm-bm-fill { opacity: 1; }
+        [id^="ycm-bar"] [ycm-btn="bookmark"] .ycm-bm-dot { display: none; }
+        [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-dirty] .ycm-bm-dot { display: inline; }
+        [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-anim] .ycm-bm-dot { display: none; }
+        [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-anim] .ycm-bm-clip { animation: ycm-bm-rise .25s ease-out both; }
+        [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-anim] svg { animation: ycm-bm-pulse .2s ease-out .25s; transform-origin: 50% 60%; }
+        @keyframes ycm-bm-rise  { from { transform: translateY(24px); } to { transform: translateY(0); } }
+        @keyframes ycm-bm-pulse { 50% { transform: scale(1.15); } }
+        [id^="ycm-bar"] .ycm-ccgroup { display: inline-flex; align-items: center; gap: calc(4px * var(--ycm-s));
+            height: calc(32px * var(--ycm-s)); padding: 0 calc(6px * var(--ycm-s)) 0 calc(8px * var(--ycm-s));
+            border-radius: calc(16px * var(--ycm-s)); background: rgba(255,255,255,.12); margin-right: 10px; }
+        [id^="ycm-bar"] [ycm-btn="cc-pill"] { width: calc(28px * var(--ycm-s)); height: calc(16px * var(--ycm-s)); cursor: pointer; display: block; }
+        [id^="ycm-bar"] [ycm-btn="cc-pill"] svg { width: 100%; height: 100%; display: block; }
+        [id^="ycm-bar"] [ycm-btn="cc"] { width: calc(32px * var(--ycm-s)); height: calc(32px * var(--ycm-s)); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+        [id^="ycm-bar"] [ycm-btn="cc"] svg { width: calc(24px * var(--ycm-s)); height: calc(24px * var(--ycm-s)); display: block; }
+        [id^="ycm-bar"] [ycm-btn="prefs"] { margin-right: calc(6px * var(--ycm-s)); }
+
+        /* Our caption button replaces the native one; keep the native button
+           in the DOM (clickable from script) but invisible and out of the flow. */
+        #movie_player[ycm-player] .ytp-subtitles-button {
+            position: absolute !important; width: 1px !important; height: 1px !important;
+            overflow: hidden !important; opacity: 0 !important; pointer-events: none !important; }
+
+        /* Fullscreen progress bar: three layers like YouTube's own bar. */
+        #ycm-fsbar { position: absolute; left: 0; right: 0; bottom: 0; height: var(--ycm-fsbar-h, 4px);
+            z-index: 40; pointer-events: none; opacity: 0; transition: opacity .15s;
+            background: var(--ycm-fsbar-track, rgba(40,40,40,.6)); }
+        #ycm-fsbar > div { position: absolute; left: 0; top: 0; bottom: 0; width: 0; }
+        #ycm-fsbar .ycm-fsbar-load { background: var(--ycm-fsbar-load, rgba(255,255,255,.4)); }
+        #ycm-fsbar .ycm-fsbar-play { background: var(--ycm-fsbar-play, linear-gradient(90deg,#f03 80%,#ff2791)); }
+        .ad-interrupting #ycm-fsbar .ycm-fsbar-play { background: #fc0; }
+        html[ycm-fsbar] .html5-video-player.ytp-fullscreen.ytp-autohide #ycm-fsbar:not([ycm-live]) { opacity: 1; }
+        #ycm-fsbar[ycm-live] .ycm-fsbar-load { display: none; }
+
+        /* Hide live chat (the playlist panel is a different element and stays). */
+        html[ycm-hide-chat] ytd-live-chat-frame,
+        html[ycm-hide-chat] #chat-container { display: none !important; }
+    `;
+    (document.head || document.documentElement).appendChild(_pageStyle);
+
+    /** Mirrors the feature switches onto <html> attributes used by the CSS above. */
+    function _applyPageFlags() {
+        const root = document.documentElement;
+        root.toggleAttribute('ycm-fsbar', !!window['FS_PROGRESS_BAR']);
+        root.toggleAttribute('ycm-hide-chat', !!window['HIDE_LIVE_CHAT']);
+    }
+    _applyPageFlags();
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // FULLSCREEN PROGRESS BAR
+    // A full-width copy of YouTube's progress bar pinned to the bottom of the
+    // fullscreen player, visible only while the native controls are hidden
+    // (.ytp-autohide), so the two never overlap. Height and colors are read
+    // from the native bar each time fullscreen is entered, so the copy follows
+    // whatever player UI version YouTube serves; pixel heights are rounded up
+    // to whole pixels.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** Returns (creating if needed) the progress bar element inside a player. */
+    function _ensureFsBar(player) {
+        let bar = player.querySelector(':scope > #ycm-fsbar');
+        if (!bar) {
+            bar = document.createElement('div');
+            bar.id = 'ycm-fsbar';
+            for (const cls of ['ycm-fsbar-load', 'ycm-fsbar-play']) {
+                const layer = document.createElement('div');
+                layer.className = cls;
+                bar.appendChild(layer);
+            }
+            player.appendChild(bar);
+        }
+        return bar;
+    }
+
+    /** Copies the native bar's rendered height and colors onto our bar. */
+    function _syncFsBarStyle(player, bar) {
+        const list = player.querySelector('.ytp-progress-list');
+        if (list) {
+            // Round up to whole pixels; the small epsilon absorbs float noise
+            // from YouTube's scaleY(.667) ≈ 2/3 (6px → 4.002px should be 4px).
+            const h = Math.ceil(list.getBoundingClientRect().height - 0.05);
+            if (h > 0) bar.style.setProperty('--ycm-fsbar-h', h + 'px');
+            const bg = getComputedStyle(list).backgroundColor;
+            if (bg && bg !== 'rgba(0, 0, 0, 0)') bar.style.setProperty('--ycm-fsbar-track', bg);
+        }
+        const load = player.querySelector('.ytp-load-progress');
+        if (load) {
+            const c = getComputedStyle(load).backgroundColor;
+            if (c && c !== 'rgba(0, 0, 0, 0)') bar.style.setProperty('--ycm-fsbar-load', c);
+        }
+        const play = player.querySelector('.ytp-play-progress');
+        if (play && !player.classList.contains('ad-interrupting')) {
+            const cs = getComputedStyle(play);
+            const paint = cs.backgroundImage && cs.backgroundImage !== 'none' ? cs.backgroundImage : cs.backgroundColor;
+            if (paint && paint !== 'rgba(0, 0, 0, 0)') bar.style.setProperty('--ycm-fsbar-play', paint);
+        }
+    }
+
+    /** Updates the played / buffered widths of the bar for a video. */
+    function _updateFsBar(video) {
+        const player = video.closest('.html5-video-player');
+        if (!player || !player.classList.contains('ytp-fullscreen')) return;
+        const bar = _ensureFsBar(player);
+        const d = video.duration;
+        if (!isFinite(d) || d <= 0) { bar.setAttribute('ycm-live', ''); return; }
+        bar.removeAttribute('ycm-live');
+        let loaded = 0;
+        for (let i = 0; i < video.buffered.length; i++) {
+            if (video.buffered.start(i) <= video.currentTime) loaded = Math.max(loaded, video.buffered.end(i));
+        }
+        bar.firstChild.style.width = (Math.min(loaded / d, 1) * 100) + '%';
+        bar.lastChild.style.width  = (Math.min(video.currentTime / d, 1) * 100) + '%';
+    }
+
+    for (const type of ['timeupdate', 'progress', 'seeked', 'durationchange']) {
+        document.addEventListener(type, e => {
+            if (e.target instanceof HTMLVideoElement && window['FS_PROGRESS_BAR']) _updateFsBar(e.target);
+        }, true);
+    }
+    document.addEventListener('fullscreenchange', () => {
+        if (!document.fullscreenElement) return;
+        // Let YouTube switch to big mode first, then copy its bar metrics.
+        setTimeout(() => {
+            document.querySelectorAll('.html5-video-player.ytp-fullscreen').forEach(player => {
+                const bar = _ensureFsBar(player);
+                _syncFsBarStyle(player, bar);
+                const v = player.querySelector('video');
+                if (v) _updateFsBar(v);
+            });
+        }, 300);
+    });
 
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -3463,41 +3609,84 @@
      * @param {Event} el  The click event from the set button.
      */
     async function saveChannelDefaults(el) {
-        const slot     = el.target.parentNode.id.replace('ycm-bar', '');
+        const btnEl    = el.currentTarget;
+        const barEl    = btnEl.parentNode;
+        const slot     = barEl.id.replace('ycm-bar', '');
         const credits  = readChannelCredits(slot, null, true);
-        const bar      = $(el.target).parent();
         const rate     = $('video[ycm-video="' + slot + '"]')[0].playbackRate;
         const handles  = credits.map(c => c.id).filter(Boolean);
 
         updateSetButtonTooltip(slot, credits.map(c => c.name).join(' & '));
 
-        // Underline the speed that is now the saved default.
-        bar.children(':not([ycm-btn^="cc-"])').css('text-decoration', '')
-           .filter('span[ycm-speed="' + rate + '"]').css('text-decoration', 'underline');
-
         for (const h of handles) {
             await GM.setValue(h, rate);
             console.log('YSC: saved speed', rate, 'for', h);
         }
+        _markSavedSpeed(barEl, rate);
 
-        // Live caption state comes from ycm-cc-live (written by toggleCC /
-        // syncCCVisuals); if never written, read the native button instead.
-        const live = bar.attr('ycm-cc-live');
-        let ccOn;
-        if (live !== undefined) {
-            ccOn = live === 'on';
-        } else {
-            const native = getPlayerSubtitleBtn(slot);
-            ccOn = native.length > 0 && native.attr('aria-pressed') === 'true';
-        }
+        // Current caption state: the native button's aria-pressed is the truth;
+        // fall back to ycm-cc-live (written by toggleCC) if the button is missing.
+        const native = getPlayerSubtitleBtn(slot);
+        const ccOn = native.length
+            ? native.attr('aria-pressed') === 'true'
+            : barEl.getAttribute('ycm-cc-live') === 'on';
 
         for (const h of handles) await GM.setValue(h + '_captions', ccOn);
         console.log('YSC: saved captions', ccOn);
+        barEl.setAttribute('ycm-cc-saved', ccOn ? 'on' : 'off');
 
-        const onBtn  = bar.find('span[ycm-btn="cc-on"]');
-        const offBtn = bar.find('span[ycm-btn="cc-off"]');
-        for (const b of [onBtn, offBtn]) b.css('text-decoration', '').removeAttr('ycm-active');
-        (ccOn ? onBtn : offBtn).css('text-decoration', 'underline').attr('ycm-active', 'true');
+        // Feedback: fill-up + pulse animation, then a short "saved" tooltip.
+        btnEl.removeAttribute('ycm-anim');
+        void btnEl.getBoundingClientRect();
+        btnEl.setAttribute('ycm-anim', '');
+        setTimeout(() => {
+            btnEl.removeAttribute('ycm-anim');
+            syncCCVisuals(slot);
+            _ttFlash(btnEl, LANG.playerSavedToast
+                .replace('{speed}', _speedLabel(rate))
+                .replace('{cc}', ccOn ? LANG.playerCCStateOn : LANG.playerCCStateOff));
+        }, 450);
+    }
+
+    /**
+     * Records the saved speed on the bar (ycm-saved-speed, read by the bookmark
+     * state) and underlines the matching speed button.
+     *
+     * @param {HTMLElement|object} bar   The ycm-bar element (or a $ wrapper).
+     * @param {number}             rate  Saved playback rate.
+     */
+    function _markSavedSpeed(bar, rate) {
+        const el = bar && bar._isJQ ? bar[0] : bar;
+        if (!el) return;
+        el.setAttribute('ycm-saved-speed', String(rate));
+        el.querySelectorAll(':scope > span[ycm-speed]').forEach(s =>
+            { s.style.textDecoration = parseFloat(s.getAttribute('ycm-speed')) === rate ? 'underline' : ''; });
+        updateBookmarkState(el.id.replace('ycm-bar', ''));
+    }
+
+    /** Button label for a rate from BUTTON_TEMPLATES, or "<rate>x". */
+    function _speedLabel(rate) {
+        const hit = BUTTON_TEMPLATES.find(([, r]) => r === rate);
+        return hit ? hit[0] : rate + 'x';
+    }
+
+    /**
+     * Toggles the saved caption default for the channel (the pill switch).
+     * Saving happens immediately; the current caption state is not changed.
+     *
+     * @param {number|string} slot  ycm-bar numeric id.
+     * @param {HTMLElement}   pill  The pill element (anchor for the tooltip).
+     */
+    async function onCaptionPillClick(slot, pill) {
+        const barEl   = document.getElementById('ycm-bar' + slot);
+        const handles = readChannelCredits(slot, null, true).map(c => c.id).filter(Boolean);
+        if (!barEl || !handles.length) return;
+        const next = barEl.getAttribute('ycm-cc-saved') !== 'on';
+        for (const h of handles) await GM.setValue(h + '_captions', next);
+        console.log('YSC: caption default set to', next, 'for', handles);
+        barEl.setAttribute('ycm-cc-saved', next ? 'on' : 'off');
+        syncCCVisuals(slot);
+        _ttFlash(pill, LANG.playerPillToast.replace('{cc}', next ? LANG.playerCCStateOn : LANG.playerCCStateOff));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -3657,6 +3846,18 @@
         btn.addEventListener('click',      _ttHide);
     }
 
+    /**
+     * Shows a one-off tooltip with `text` above `el` for `ms` milliseconds,
+     * then restores the element's own tooltip text (if any).
+     */
+    function _ttFlash(el, text, ms = 1500) {
+        const own = el.getAttribute('data-tooltip');
+        el.setAttribute('data-tooltip', text);
+        _ttShow(el);
+        if (own === null) el.removeAttribute('data-tooltip'); else el.setAttribute('data-tooltip', own);
+        setTimeout(_ttHide, ms);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // PLAYER CONTROL BAR — CONTAINER CREATION
     // ─────────────────────────────────────────────────────────────────────────
@@ -3691,30 +3892,179 @@
         // Leading spacer.
         add('margin-right:15px;', {}, '');
 
-        // Caption On / Off.
-        const ccOn  = add(btnStyle(COLOR_NORMAL), { 'ycm-btn': 'cc-on'  }, LANG.playerCCOn);
-        const ccOff = add(btnStyle(COLOR_NORMAL), { 'ycm-btn': 'cc-off' }, LANG.playerCCOff);
-
-        // "set" button: saves current speed + caption state for the channel.
-        const setBtn = add(
-            'display:inline-block;width:40px;height:25px;background-color:rgba(39,39,39,0.25);color:white;' +
-            'text-align:center;line-height:21px;margin-right:10px;cursor:pointer;' +
-            'border:2px solid rgba(255,255,255,0.75);box-sizing:border-box;border-radius:10px;' +
-            'font-size:' + PLAYER_FONT_SIZE + ';',
-            { 'data-tooltip': LANG.playerSetTitle }, LANG.playerSetLabel);
-
-        // One speed button per template entry.
+        // Speed buttons: one per BUTTON_TEMPLATES entry.
         const speedBtns = BUTTON_TEMPLATES.map(([label, rate]) =>
             add(btnStyle(curspeed === rate ? COLOR_SELECTED : COLOR_NORMAL), { 'ycm-speed': rate }, label));
+        speedBtns.forEach(b => b.addEventListener('click', onSpeedButtonClick));
 
-        // Handlers (the spacer also receives onSpeedButtonClick, as before).
-        [box.firstChild, ...speedBtns].forEach(b => b.addEventListener('click', onSpeedButtonClick));
-        setBtn.addEventListener('click', saveChannelDefaults);
-        ccOn.addEventListener('click',  () => toggleCC(true,  id));
-        ccOff.addEventListener('click', () => toggleCC(false, id));
-        _ttBind(setBtn);
+        // Bookmark: saves current speed + captions; shows saved / changed state.
+        const bookmark = document.createElement('span');
+        bookmark.setAttribute('ycm-btn', 'bookmark');
+        bookmark.setAttribute('ycm-bm', 'none');
+        bookmark.setAttribute('data-tooltip', LANG.playerSetTitle);
+        bookmark.appendChild(_buildBookmarkSVG(id));
+        bookmark.addEventListener('click', saveChannelDefaults);
+        box.appendChild(bookmark);
+        _ttBind(bookmark);
 
+        // Caption group: pill (saved default) + caption button (current state).
+        const group = document.createElement('div');
+        group.className = 'ycm-ccgroup';
+        const pill = document.createElement('div');
+        pill.setAttribute('ycm-btn', 'cc-pill');
+        pill.appendChild(_buildPillSVG());
+        pill.addEventListener('click', () => onCaptionPillClick(id, pill));
+        _ttBind(pill);
+        const ccBtn = document.createElement('div');
+        ccBtn.setAttribute('ycm-btn', 'cc');
+        ccBtn.setAttribute('data-tooltip', LANG.playerCCTitle);
+        ccBtn.addEventListener('click', () => {
+            const native = getPlayerSubtitleBtn(id);
+            if (!_ccAvailable(native)) return;
+            toggleCC(native.attr('aria-pressed') !== 'true', id);
+        });
+        _ttBind(ccBtn);
+        group.append(pill, ccBtn);
+        box.appendChild(group);
+
+        // Settings entry (sliders icon), last in our bar.
+        const prefs = document.createElement('div');
+        prefs.setAttribute('ycm-btn', 'prefs');
+        prefs.setAttribute('data-tooltip', LANG.playerPrefsTitle);
+        prefs.appendChild(_buildTuneSVG());
+        prefs.addEventListener('click', () => openSettingsPanel());
+        _ttBind(prefs);
+        box.appendChild(prefs);
+
+        _renderCaptionWidgets(box, id);
         return box;
+    }
+
+    /** Creates an SVG element (namespace-aware, Trusted-Types safe). */
+    function _svgEl(tag, attrs = {}) {
+        const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+        for (const k in attrs) el.setAttribute(k, attrs[k]);
+        return el;
+    }
+
+    /** Bookmark path on a 24-unit canvas (8 units wide body). */
+    const _BOOKMARK_D = 'M8 3.5h8a1.5 1.5 0 0 1 1.5 1.5v15.5l-5.5-4.2-5.5 4.2V5A1.5 1.5 0 0 1 8 3.5z';
+
+    /** Bookmark icon: outline, fill (clipped for the save animation) and change dot. */
+    function _buildBookmarkSVG(id) {
+        const svg = _svgEl('svg', { viewBox: '0 0 24 24', class: 'ycm-ico' });
+        const clipId = 'ycm-bm-clip-' + id;
+        const defs = _svgEl('defs');
+        const clip = _svgEl('clipPath', { id: clipId });
+        clip.appendChild(_svgEl('rect', { class: 'ycm-bm-clip', x: 0, y: 0, width: 24, height: 24 }));
+        defs.appendChild(clip);
+        svg.append(
+            defs,
+            _svgEl('path', { d: _BOOKMARK_D, fill: 'none', stroke: '#fff', 'stroke-width': 2, 'stroke-linejoin': 'round' }),
+            _svgEl('path', { d: _BOOKMARK_D, fill: '#fff', class: 'ycm-bm-fill', 'clip-path': 'url(#' + clipId + ')' }),
+            _svgEl('circle', { cx: 18, cy: 5, r: 3, fill: '#ff4e45', stroke: 'rgba(0,0,0,.6)', 'stroke-width': 2, class: 'ycm-bm-dot' })
+        );
+        return svg;
+    }
+
+    /** Pill switch: track, knob and the red "on" dot (states set by _renderCaptionWidgets). */
+    function _buildPillSVG() {
+        const svg = _svgEl('svg', { viewBox: '0 0 28 16' });
+        svg.append(
+            _svgEl('rect', { class: 'ycm-pill-track', x: 0, y: 0, width: 28, height: 16, rx: 8 }),
+            _svgEl('circle', { class: 'ycm-pill-knob', cy: 8 }),
+            _svgEl('circle', { class: 'ycm-pill-dot', cx: 20, cy: 8, r: 2.5, fill: '#f00' })
+        );
+        return svg;
+    }
+
+    /** Sliders ("tune") icon used for the settings entry. */
+    function _buildTuneSVG() {
+        const svg = _svgEl('svg', { viewBox: '0 0 24 24', class: 'ycm-ico', fill: 'none', stroke: '#fff', 'stroke-width': 2, 'stroke-linecap': 'round' });
+        svg.append(
+            _svgEl('path', { d: 'M4 6h8M16 6h4M4 12h2M10 12h10M4 18h10M18 18h2' }),
+            _svgEl('circle', { cx: 14, cy: 6, r: 2 }),
+            _svgEl('circle', { cx: 8, cy: 12, r: 2 }),
+            _svgEl('circle', { cx: 16, cy: 18, r: 2 })
+        );
+        return svg;
+    }
+
+    /** True if the native subtitle button exists and the video has captions. */
+    function _ccAvailable(native) {
+        if (!native || !native.length) return false;
+        const svg = native[0].querySelector('svg');
+        const fo  = svg ? parseFloat(svg.getAttribute('fill-opacity') ?? '1') : 1;
+        return native[0].getAttribute('aria-disabled') !== 'true' && !(fo < 0.99);
+    }
+
+    /**
+     * Renders the caption button (current state, mirrored from the native
+     * button including its icon and "no captions" dimming) and the pill
+     * (saved default from ycm-cc-saved: on / off / not set).
+     */
+    function _renderCaptionWidgets(barEl, id) {
+        const ccBtn = barEl.querySelector('[ycm-btn="cc"]');
+        const pill  = barEl.querySelector('[ycm-btn="cc-pill"]');
+        if (!ccBtn || !pill) return;
+
+        // Caption button: clone the native icon so it matches YouTube's look.
+        const native = getPlayerSubtitleBtn(id);
+        const nativeSvg = native.length ? native[0].querySelector('svg') : null;
+        const icon = nativeSvg ? nativeSvg.cloneNode(true) : _svgEl('svg', { viewBox: '0 0 24 24' });
+        if (!nativeSvg) {
+            icon.appendChild(_svgEl('rect', { x: 2, y: 4, width: 20, height: 16, rx: 2, fill: 'none', stroke: '#fff', 'stroke-width': 2 }));
+        }
+        icon.removeAttribute('width'); icon.removeAttribute('height');
+        if (native.length && native.attr('aria-pressed') === 'true') {
+            icon.appendChild(_svgEl('rect', { x: 2, y: 18, width: 20, height: 3, rx: 1, fill: '#f00', 'fill-opacity': 1 }));
+        }
+        ccBtn.replaceChildren(icon);
+
+        // Pill: saved default for this channel.
+        const saved = barEl.getAttribute('ycm-cc-saved');     // 'on' | 'off' | null
+        const track = pill.querySelector('.ycm-pill-track');
+        const knob  = pill.querySelector('.ycm-pill-knob');
+        const dot   = pill.querySelector('.ycm-pill-dot');
+        track.setAttribute('fill', saved === null ? 'rgba(255,255,255,.14)' : 'rgba(255,255,255,.3)');
+        if (saved === null) {
+            knob.setAttribute('cx', 14); knob.setAttribute('r', 4.5);
+            knob.setAttribute('fill', 'none'); knob.setAttribute('stroke', 'rgba(255,255,255,.55)'); knob.setAttribute('stroke-width', 2);
+        } else {
+            knob.setAttribute('cx', saved === 'on' ? 20 : 8); knob.setAttribute('r', 6);
+            knob.setAttribute('fill', '#fff'); knob.removeAttribute('stroke'); knob.removeAttribute('stroke-width');
+        }
+        dot.style.display = saved === 'on' ? '' : 'none';
+        const stateText = saved === 'on' ? LANG.playerCCStateOn : saved === 'off' ? LANG.playerCCStateOff : LANG.playerCCStateNone;
+        pill.setAttribute('data-tooltip', LANG.playerPillTitle.replace('{cc}', stateText));
+    }
+
+    /**
+     * Updates the bookmark: hollow when no speed is saved for the channel,
+     * filled when it is, plus a red dot when the user's current speed or
+     * captions differ from what is saved. A video without captions does not
+     * count as a caption difference (the user cannot turn them on), and the
+     * caption check waits while the auto-apply controller is still working.
+     *
+     * @param {number|string} id  ycm-bar numeric id.
+     */
+    function updateBookmarkState(id) {
+        const barEl = document.getElementById('ycm-bar' + id);
+        const bm = barEl && barEl.querySelector('[ycm-btn="bookmark"]');
+        if (!bm) return;
+        const savedSpeed = barEl.getAttribute('ycm-saved-speed');
+        const savedCC    = barEl.getAttribute('ycm-cc-saved');
+        const video      = document.querySelector('video[ycm-video="' + id + '"]');
+
+        let dirty = false;
+        if (savedSpeed !== null && video && Math.abs(parseFloat(savedSpeed) - video.playbackRate) > 1e-6) dirty = true;
+        const controllerBusy = !!(window._ysc_cc_stop && window._ysc_cc_stop[id]);
+        if (savedCC !== null && !controllerBusy) {
+            const native = getPlayerSubtitleBtn(id);
+            if (_ccAvailable(native) && (native.attr('aria-pressed') === 'true') !== (savedCC === 'on')) dirty = true;
+        }
+        bm.setAttribute('ycm-bm', savedSpeed !== null ? 'saved' : 'none');
+        bm.toggleAttribute('ycm-dirty', dirty);
     }
 
     /**
@@ -3726,48 +4076,35 @@
      */
     function refreshContainers() {
         $('[id^=ycm-bar]').each(function() {
-            const container = $(this);
-            const id = this.id.replace('ycm-bar', '');
+            const old = this;
+            const id  = old.id.replace('ycm-bar', '');
 
-            // Snapshot current caption state before destroying the container.
-            const ccOnActive = container.find('span[ycm-btn="cc-on"]').attr('ycm-active') === 'true';
-            const ccOnLine   = container.find('span[ycm-btn="cc-on"]').css('text-decoration')  || '';
-            const ccOffLine  = container.find('span[ycm-btn="cc-off"]').css('text-decoration') || '';
+            // Snapshot the selected speed (ycm-sel, set by onSpeedButtonClick).
+            const selBtn   = old.querySelector('span[ycm-sel="true"]');
+            const firstBtn = old.querySelector('span[ycm-speed]');
+            const curspeed = selBtn
+                ? parseFloat(selBtn.getAttribute('ycm-speed'))
+                : (parseFloat(firstBtn && firstBtn.getAttribute('ycm-speed')) || 1);
 
-            // Snapshot the currently highlighted speed using the ycm-sel attribute
-            // set by onSpeedButtonClick(). This is more reliable than matching inline
-            // style strings, which can vary by browser or color format.
-            const selBtn   = container.find('span[ycm-sel="true"]');
-            const curspeed = selBtn.length
-                ? parseFloat(selBtn.attr('ycm-speed'))
-                : (parseFloat(container.find('span[ycm-speed]').first().attr('ycm-speed')) || 1);
-
-            // Rebuild with new settings and replace the old container in the DOM.
-            const newDiv   = buildControlBar(curspeed, id);
-            const newCcOn  = $(newDiv).find('span[ycm-btn="cc-on"]');
-            const newCcOff = $(newDiv).find('span[ycm-btn="cc-off"]');
-
-            // Restore caption state into the new container.
-            if (ccOnActive) {
-                newCcOn.css('color', COLOR_SELECTED).css('text-decoration', ccOnLine).attr('ycm-active', 'true');
-                newCcOff.css('text-decoration', ccOffLine);
-            } else {
-                newCcOff.css('color', COLOR_SELECTED).css('text-decoration', ccOffLine).attr('ycm-active', 'true');
-                newCcOn.css('text-decoration', ccOnLine);
+            // Rebuild with new settings, carrying over the state attributes.
+            const newDiv = buildControlBar(curspeed, id);
+            for (const attr of ['ycm-cc-saved', 'ycm-cc-live']) {
+                const v = old.getAttribute(attr);
+                if (v !== null) newDiv.setAttribute(attr, v);
             }
 
-            // Restore channel name tooltip on the set button.
+            // Restore channel name tooltip on the bookmark.
             const channeldiv = $('[ycm-channel="' + id + '"]');
             if (channeldiv.length) {
                 const channelname = readChannelCredits(-1, channeldiv);
-                const setBtn = $(newDiv).find('span[data-tooltip]');
-                if (setBtn.length) {
-                    setBtn[0].dataset.tooltip = setBtn[0].dataset.tooltip.split(' [')[0] + (channelname !== '' ? ' [' + channelname + ']' : '');
-                }
+                const bm = newDiv.querySelector('[ycm-btn="bookmark"]');
+                if (bm) bm.dataset.tooltip = bm.dataset.tooltip.split(' [')[0] + (channelname !== '' ? ' [' + channelname + ']' : '');
             }
 
-            // Replace the old container in the DOM.
-            container.replaceWith(newDiv);
+            $(old).replaceWith(newDiv);
+            const savedSpeed = old.getAttribute('ycm-saved-speed');
+            if (savedSpeed !== null) _markSavedSpeed(newDiv, parseFloat(savedSpeed));
+            syncCCVisuals(id);
         });
     }
 
@@ -3791,7 +4128,7 @@
      * @param {string} channelname  Channel display name; empty string clears the channel suffix.
      */
     function updateSetButtonTooltip(id, channelname = '') {
-        const setBtn = document.querySelector('#ycm-bar' + id + ' > span[data-tooltip]');
+        const setBtn = document.querySelector('#ycm-bar' + id + ' > [ycm-btn="bookmark"]');
         if (!setBtn) return;
         const base = setBtn.dataset.tooltip.split(' [')[0];
         setBtn.dataset.tooltip = channelname ? `${base} [${channelname}]` : base;
@@ -3836,6 +4173,7 @@
             // Drop to 1x right away; the real speed follows the channel lookup.
             applyRate(1);
             $('span', bar).css('text-decoration', '');
+            bar[0].removeAttribute('ycm-saved-speed');
             updateSetButtonTooltip(slot);
 
             setTimeout(async () => {
@@ -3875,7 +4213,7 @@
                     force1x:  bar.closest('#movie_player').find('.ytp-live').length === 1
                 });
                 applyRate(rate);
-                if (why === 'channelspeed') $('span[ycm-speed="' + rate + '"]', bar).css('text-decoration', 'underline');
+                if (why === 'channelspeed') _markSavedSpeed(bar, rate);
                 applySavedCaptions(slot, credits);
             }, 500);
         });
@@ -3907,13 +4245,19 @@
      * Re-wires a video element that has lost its ycm-video attribute after a
      * DOM refresh (e.g. YouTube replaced the <video> element internally).
      */
-    /** Attaches the per-video listeners used for relative time and auto (exit-)fullscreen. */
-    function _attachVideoListeners(videoEl, playerDiv) {
+    /**
+     * Attaches the per-video listeners used for relative time and auto exit
+     * fullscreen. (Entering fullscreen is driven by the document-level 'play'
+     * listener in the START-PAUSED / FULLSCREEN section.)
+     */
+    function _attachVideoListeners(videoEl) {
         if (SHOW_RELATIVE_TIME) {
             for (const name of ['timeupdate', 'seeked', 'pause']) videoEl.addEventListener(name, updateRelativeTime, false);
         }
-        videoEl.addEventListener('play', () => tryAutoFullscreen(videoEl), false);
-        playerDiv.on('mousedown', e => { if (e.which === 1) tryAutoFullscreen(videoEl); });
+        videoEl.addEventListener('ratechange', () => {
+            const slot = videoEl.getAttribute('ycm-video');
+            if (slot !== null) updateBookmarkState(slot);
+        }, false);
         videoEl.addEventListener('timeupdate', () => {
             const left = videoEl.duration - videoEl.currentTime;
             if (!isNaN(videoEl.duration) && videoEl.duration > 0 && left <= 5) tryAutoExitFullscreen(videoEl);
@@ -3938,7 +4282,7 @@
                 vWrap.attr('ycm-video', slot);
                 reapplySelectedSpeed('#ycm-bar' + slot);
                 syncCCVisuals(slot);
-                _attachVideoListeners(vEl, player);
+                _attachVideoListeners(vEl);
             }, 750);
         });
     }
@@ -3952,7 +4296,7 @@
      */
     function reapplySelectedSpeed(el, log = false) {
         try {
-            $('span:not([title]):not([ycm-btn^="cc-"]):visible', el)
+            $('span[ycm-speed]:visible', el)
                 .filter(function() { return this.style.color == COLOR_SELECTED; })
                 .click();
             syncCCVisuals($(el).attr('id').replace('ycm-bar', ''));
@@ -4028,27 +4372,31 @@
             return;
         }
 
-        // Tear down any previous graph for this element.
-        const _audioGraphs = (window._ysc_audio_graphs ||= {});
-        try { _audioGraphs[tag].close(); } catch (_) {}
-        if (AUDIO_BOOST === 1 && !force) return;
+        // A media element can be attached to a MediaElementSource only once in
+        // its lifetime, so an existing graph is re-tuned instead of rebuilt
+        // (rebuilding threw "already connected" and aborted the settings save).
+        const graphs = (window._ysc_audio_graphs ||= {});
+        let g = graphs[tag];
+        if (!g) {
+            if (AUDIO_BOOST === 1 && !force) return;
+            const ctx = new AudioContext();
+            g = graphs[tag] = { ctx, gain: ctx.createGain(), lim: ctx.createDynamicsCompressor() };
+            Object.entries({ threshold: -5, knee: 0, ratio: 40, attack: 0.001, release: 0.1 })
+                .forEach(([k, v]) => { g.lim[k].value = v; });
+            ctx.createMediaElementSource(media).connect(g.gain);
+        }
 
-        const ctx = new AudioContext();
-        _audioGraphs[tag] = ctx;
-        const gain = ctx.createGain();
-        gain.gain.value = AUDIO_BOOST;
-        ctx.createMediaElementSource(media).connect(gain);
-
-        let tail = gain;
+        // Route: source → gain → (limiter when boosting) → destination.
+        g.gain.gain.value = AUDIO_BOOST;
+        try { g.gain.disconnect(); } catch (_) {}
+        try { g.lim.disconnect(); } catch (_) {}
         if (AUDIO_BOOST > 1) {
             // Brick-wall limiter so high gain does not clip.
-            const lim = ctx.createDynamicsCompressor();
-            Object.entries({ threshold: -5, knee: 0, ratio: 40, attack: 0.001, release: 0.1 })
-                .forEach(([k, v]) => { lim[k].value = v; });
-            gain.connect(lim);
-            tail = lim;
+            g.gain.connect(g.lim);
+            g.lim.connect(g.ctx.destination);
+        } else {
+            g.gain.connect(g.ctx.destination);
         }
-        tail.connect(ctx.destination);
     }
 
     /**
@@ -4137,7 +4485,7 @@
                 });
 
                 const bar = buildControlBar(rate, slot);
-                if (why === 'channelspeed') $('span[ycm-speed="' + rate + '"]', bar).css('text-decoration', 'underline');
+                if (why === 'channelspeed') _markSavedSpeed(bar, rate);
                 controls.prepend(bar);
                 updateSetButtonTooltip(slot, name);
 
@@ -4157,8 +4505,7 @@
                 }, 1000);
 
                 applySavedCaptions(slot, credits);
-                if (!vEl.paused) tryAutoFullscreen(vEl);
-                _attachVideoListeners(vEl, player);
+                _attachVideoListeners(vEl);
 
             } else if (this.id === 'c4-player') {
                 const chDiv = player.closest('ytd-browse').find('#header #channel-name');
@@ -4238,12 +4585,7 @@
     // present, and this listener starts pollForPlayers whenever the user arrives
     // at a relevant page via SPA navigation.
     // ─────────────────────────────────────────────────────────────────────────
-    document.addEventListener('yt-navigate-start', function() {
-        window._ysc_clicked_since_nav = false;
-        console.log('[YSC] yt-navigate-start, resetting click guard.');
-    });
     document.addEventListener('yt-navigate-finish', function() {
-        window._ysc_clicked_since_nav = false;
         console.log('[YSC] yt-navigate-finish. isRelevantPage:', isRelevantPage(), '| _pollRunning:', _pollRunning);
         if (isRelevantPage() && !_pollRunning) {
             pollForPlayers();
