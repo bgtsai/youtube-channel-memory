@@ -1,6 +1,6 @@
 <p align="center">
-  <a href="README.md"><img alt="English" src="https://img.shields.io/badge/English-current-cc0000?style=for-the-badge"></a>
-  <a href="README.zh-TW.md"><img alt="繁體中文" src="https://img.shields.io/badge/%E7%B9%81%E9%AB%94%E4%B8%AD%E6%96%87-switch-555555?style=for-the-badge"></a>
+  <img alt="English" src="https://img.shields.io/badge/English-cc0000?style=for-the-badge">
+  <a href="README.zh-TW.md"><img alt="繁體中文" src="https://img.shields.io/badge/%E7%B9%81%E9%AB%94%E4%B8%AD%E6%96%87-3a3a3a?style=for-the-badge"></a>
 </p>
 
 # YouTube Channel Memory

@@ -1,6 +1,6 @@
 <p align="center">
-  <a href="README.md"><img alt="English" src="https://img.shields.io/badge/English-switch-555555?style=for-the-badge"></a>
-  <a href="README.zh-TW.md"><img alt="繁體中文" src="https://img.shields.io/badge/%E7%B9%81%E9%AB%94%E4%B8%AD%E6%96%87-%E7%9B%AE%E5%89%8D-cc0000?style=for-the-badge"></a>
+  <a href="README.md"><img alt="English" src="https://img.shields.io/badge/English-3a3a3a?style=for-the-badge"></a>
+  <img alt="繁體中文" src="https://img.shields.io/badge/%E7%B9%81%E9%AB%94%E4%B8%AD%E6%96%87-cc0000?style=for-the-badge">
 </p>
 
 # YouTube 頻道記憶
