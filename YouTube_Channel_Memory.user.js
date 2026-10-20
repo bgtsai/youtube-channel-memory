@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Channel Memory
 // @namespace    YouTubeChannelMemory
-// @version      1.2.45
+// @version      1.2.46
 // @description  Per-channel playback speed and subtitle preferences, with audio boost, real-time duration display, start-paused, fullscreen on play / auto-exit near the end, bottom progress bar, hide live chat, and custom language editor.
 // @author       bgtsai
 // @match        https://www.youtube.com/*
@@ -1577,11 +1577,21 @@
               </section>
 
 
-              <div class="ysc-danger-zone" style="margin:0">
-                <div class="ysc-danger-label">${LANG.dangerZoneLabel}</div>
-                <div class="ysc-danger-desc">${LANG.dangerZoneDesc}</div>
-                <button class="ysc-btn-reset">${LANG.btnRestoreDefault}</button>
+
+              <section class="ysc-card">
+              <div class="ysc-group">${LANG.sectionLanguage}</div>
+              <div class="ysc-row">
+                <div class="ysc-lbl">${LANG.labelUiLang}<small>${LANG.labelUiLangSub}</small></div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <select class="ysc-select" id="ysc-ui-lang">
+                    ${[['auto', LANG.optLangAuto], ['en', 'English'], ['zh_tw', '繁體中文'], ['custom', LANG.labelCustomLang]]
+                        .map(([v, txt]) => `<option value="${v}"${(window['UI_LANG'] === v) ? ' selected' : ''}>${txt}</option>`).join('')}
+                  </select>
+                  <button class="ysc-edit-btn" id="ysc-edit-lang">${LANG.labelBtnEdit}</button>
+                </div>
               </div>
+              </section>
+
               </div>
               <div class="ysc-col">
 
@@ -1615,19 +1625,13 @@
               </section>
 
 
-              <section class="ysc-card">
-              <div class="ysc-group">${LANG.sectionLanguage}</div>
-              <div class="ysc-row">
-                <div class="ysc-lbl">${LANG.labelUiLang}<small>${LANG.labelUiLangSub}</small></div>
-                <div style="display:flex;align-items:center;gap:8px;">
-                  <select class="ysc-select" id="ysc-ui-lang">
-                    ${[['auto', LANG.optLangAuto], ['en', 'English'], ['zh_tw', '繁體中文'], ['custom', LANG.labelCustomLang]]
-                        .map(([v, txt]) => `<option value="${v}"${(window['UI_LANG'] === v) ? ' selected' : ''}>${txt}</option>`).join('')}
-                  </select>
-                  <button class="ysc-edit-btn" id="ysc-edit-lang">${LANG.labelBtnEdit}</button>
-                </div>
+
+
+              <div class="ysc-danger-zone" style="margin:0">
+                <div class="ysc-danger-label">${LANG.dangerZoneLabel}</div>
+                <div class="ysc-danger-desc">${LANG.dangerZoneDesc}</div>
+                <button class="ysc-btn-reset">${LANG.btnRestoreDefault}</button>
               </div>
-              </section>
 
               </div>
              </div>
@@ -3507,7 +3511,7 @@
         @keyframes ycm-bm-rise  { from { transform: translateY(24px); } to { transform: translateY(0); } }
         @keyframes ycm-bm-pulse { 50% { transform: scale(1.15); } }
         [id^="ycm-bar"] .ycm-ccgroup { display: inline-flex; align-items: center; gap: calc(4px * var(--ycm-s));
-            height: calc(32px * var(--ycm-s)); padding: 0 calc(6px * var(--ycm-s)) 0 calc(8px * var(--ycm-s));
+            height: calc(32px * var(--ycm-s)); padding: 0 calc(8px * var(--ycm-s)) 0 calc(8px * var(--ycm-s));
             border-radius: calc(16px * var(--ycm-s)); background: rgba(255,255,255,.12); margin-right: 10px; }
         [id^="ycm-bar"] [ycm-btn="cc-pill"] { width: calc(28px * var(--ycm-s)); height: calc(16px * var(--ycm-s)); cursor: pointer; display: block; }
         [id^="ycm-bar"] [ycm-btn="cc-pill"] svg { width: 100%; height: 100%; display: block; }
