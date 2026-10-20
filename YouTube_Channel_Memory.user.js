@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Channel Memory
 // @namespace    YouTubeChannelMemory
-// @version      1.2.48
+// @version      1.2.49
 // @description  Per-channel playback speed and subtitle preferences, with audio boost, real-time duration display, start-paused, fullscreen on play / auto-exit near the end, bottom progress bar, hide live chat, and custom language editor.
 // @author       bgtsai
 // @match        https://www.youtube.com/*
@@ -3503,12 +3503,8 @@
         [id^="ycm-bar"] [ycm-btn="bookmark"] .ycm-bm-fill { opacity: 0; }
         [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-bm="saved"] .ycm-bm-fill,
         [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-anim] .ycm-bm-fill { opacity: 1; }
-        [id^="ycm-bar"] [ycm-btn="bookmark"] .ycm-bm-dot,
-        [id^="ycm-bar"] [ycm-btn="bookmark"] .ycm-bm-gap { display: none; }
-        [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-dirty] .ycm-bm-dot,
-        [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-dirty] .ycm-bm-gap { display: inline; }
-        [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-anim] .ycm-bm-dot,
-        [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-anim] .ycm-bm-gap { display: none; }
+        [id^="ycm-bar"] [ycm-btn="bookmark"] .ycm-bm-dot { display: none; }
+        [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-dirty] .ycm-bm-dot { display: inline; }
         [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-anim] .ycm-bm-clip { animation: ycm-bm-rise .25s ease-out both; }
         [id^="ycm-bar"] [ycm-btn="bookmark"][ycm-anim] svg { animation: ycm-bm-pulse .2s ease-out .25s; transform-origin: 50% 60%; }
         @keyframes ycm-bm-rise  { from { transform: translateY(24px); } to { transform: translateY(0); } }
@@ -3752,6 +3748,7 @@
 
         // Feedback: fill-up + pulse animation, then a short "saved" tooltip.
         btnEl.removeAttribute('ycm-anim');
+        _setBookmarkDirty(btnEl, false);
         void btnEl.getBoundingClientRect();
         btnEl.setAttribute('ycm-anim', '');
         setTimeout(() => {
@@ -4079,10 +4076,13 @@
         const mask = _svgEl('mask', { id: maskId, maskUnits: 'userSpaceOnUse', x: 0, y: 0, width: 24, height: 24 });
         mask.append(
             _svgEl('rect', { x: 0, y: 0, width: 24, height: 24, fill: '#fff' }),
-            _svgEl('circle', { cx: 18, cy: 5, r: 5, fill: '#000', class: 'ycm-bm-gap' })
+            _svgEl('circle', { cx: 18, cy: 5, r: 5, fill: '#000' })
         );
         defs.append(clip, mask);
-        const body = _svgEl('g', { mask: 'url(#' + maskId + ')' });
+        // The mask is attached only while the dot is shown (see
+        // _setBookmarkDirty): toggling content *inside* a <mask> with CSS is
+        // not repainted reliably in Chrome, leaving a notch after the dot hides.
+        const body = _svgEl('g', { class: 'ycm-bm-body', 'data-mask': 'url(#' + maskId + ')' });
         body.append(
             _svgEl('path', { d: _BOOKMARK_D, fill: 'none', stroke: '#fff', 'stroke-width': 2, 'stroke-linejoin': 'round' }),
             _svgEl('path', { d: _BOOKMARK_D, fill: '#fff', class: 'ycm-bm-fill', 'clip-path': 'url(#' + clipId + ')' })
@@ -4192,7 +4192,19 @@
             if (_ccAvailable(native) && (native.attr('aria-pressed') === 'true') !== (savedCC === 'on')) dirty = true;
         }
         bm.setAttribute('ycm-bm', savedSpeed !== null ? 'saved' : 'none');
+        _setBookmarkDirty(bm, dirty && !bm.hasAttribute('ycm-anim'));
+    }
+
+    /**
+     * Shows / hides the change dot and attaches / detaches the gap mask on the
+     * bookmark body in the same step, so the cut-out never outlives the dot.
+     */
+    function _setBookmarkDirty(bm, dirty) {
         bm.toggleAttribute('ycm-dirty', dirty);
+        const body = bm.querySelector('.ycm-bm-body');
+        if (!body) return;
+        if (dirty) body.setAttribute('mask', body.getAttribute('data-mask'));
+        else body.removeAttribute('mask');
     }
 
     /**
