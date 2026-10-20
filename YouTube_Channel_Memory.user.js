@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Channel Memory
 // @namespace    YouTubeChannelMemory
-// @version      1.2.39
+// @version      1.2.40
 // @description  Per-channel playback speed and subtitle preferences, with audio boost, real-time duration display, optional auto-fullscreen / auto-exit-fullscreen with AHK support, and custom language editor.
 // @author       bgtsai
 // @match        https://www.youtube.com/*
@@ -3244,6 +3244,10 @@
     // ─────────────────────────────────────────────────────────────────────────
     const FS_AHK_PREFIX      = '[AHK-FS] '; // Title prefix used as AHK enter-fullscreen signal.
     const FS_AHK_EXIT_PREFIX = '[AHK-FS] '; // Title prefix used as AHK exit-fullscreen signal.
+    // TEST (v1.2.40): AHK title signal switched off while trying Firefox's
+    // about:config route (full-screen-api.allow-trusted-requests-only = false),
+    // where clicking YouTube's own fullscreen button is enough on its own.
+    const FS_AHK_SIGNAL_ENABLED = false;
 
     /** Tracks whether the user has clicked since the last yt-navigate-finish event. */
     window._ysc_clicked_since_nav = false;
@@ -3305,7 +3309,7 @@
                 return;
             }
             // After 2 failed attempts, set the AHK signal title prefix.
-            if (loopCount > 1 && !document.title.includes(FS_AHK_PREFIX)) {
+            if (FS_AHK_SIGNAL_ENABLED && loopCount > 1 && !document.title.includes(FS_AHK_PREFIX)) {
                 console.log('YSC: Adding AHK-FS trigger.');
                 document.title = FS_AHK_PREFIX + document.title;
             }
@@ -3362,7 +3366,7 @@
                 clearInterval(fsExitIntv);
                 return;
             }
-            if (loopCount > 1 && !document.title.includes(FS_AHK_EXIT_PREFIX)) {
+            if (FS_AHK_SIGNAL_ENABLED && loopCount > 1 && !document.title.includes(FS_AHK_EXIT_PREFIX)) {
                 console.log('YSC: Adding AHK-EFS trigger.');
                 document.title = FS_AHK_EXIT_PREFIX + document.title;
             }
