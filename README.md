@@ -1,28 +1,98 @@
+<p align="center">
+  <a href="README.md"><img alt="English" src="https://img.shields.io/badge/English-current-cc0000?style=for-the-badge"></a>
+  <a href="README.zh-TW.md"><img alt="繁體中文" src="https://img.shields.io/badge/%E7%B9%81%E9%AB%94%E4%B8%AD%E6%96%87-switch-555555?style=for-the-badge"></a>
+</p>
+
 # YouTube Channel Memory
 
-Tampermonkey userscript that remembers playback speed and caption on/off **per YouTube channel**.
+A Tampermonkey userscript that remembers **playback speed** and **captions on/off** for each YouTube channel, plus a few quality-of-life extras: start videos paused, fullscreen when you press Play, a thin progress bar while the controls are hidden, audio boost and live-chat hiding.
 
-依頻道記住 YouTube 播放速度與字幕開關的 Tampermonkey 腳本。
+<p align="center"><img src="docs/img/player-bar.svg" alt="Player bar: speed buttons, bookmark, caption pill + caption button, settings"></p>
 
-## Features / 功能
+## Install
 
-- Per-channel playback speed (keyed by `@handle`) — 依頻道記住播放速度
-- Per-channel captions on/off — 依頻道記住字幕開關
-- Collab videos with multiple credited channels — 支援多頻道合作影片
-- Audio boost with limiter — 音量增益（含限幅器避免爆音）
-- Speed-adjusted remaining time — 依目前倍速換算的實際時間
-- Optional start-paused for newly opened videos — 新開影片先暫停（播放清單接續不受影響）
-- Fullscreen when you press Play, auto-exit near the end; no extra browser setup — 按下播放即全螢幕、片尾自動退出，免設定
-- Thin bottom progress bar whenever player controls are hidden (incl. fullscreen) — 控制列隱藏時的底部細進度條（含全螢幕）
-- Optional hiding of live chat — 可隱藏直播聊天室
-- Settings panel: colors, speed buttons, custom language — 設定面板：顏色、速度按鈕、自訂語系
+1. Install [Tampermonkey](https://www.tampermonkey.net/) in Chrome, Edge or Firefox.
+2. Open **[YouTube_Channel_Memory.user.js](https://raw.githubusercontent.com/bgtsai/youtube-channel-memory/main/YouTube_Channel_Memory.user.js)** and click **Install**.
+3. Open any YouTube video — the controls appear on the right side of the player bar.
 
-## Install / 安裝
+Updates are picked up automatically by Tampermonkey.
 
-1. Install [Tampermonkey](https://www.tampermonkey.net/).
-2. Open [YouTube_Channel_Memory.user.js (raw)](https://raw.githubusercontent.com/bgtsai/youtube-channel-memory/main/YouTube_Channel_Memory.user.js) and confirm installation.
+## The player bar
 
-Open the settings from the sliders icon on the player bar, or the Tampermonkey menu → **Settings**.
+From left to right: **speed buttons → bookmark → caption group (pill + caption button) → settings**.
+
+### Speed buttons
+
+Click a speed to apply it. The current speed is highlighted; the speed saved for this channel is <u>underlined</u>. Labels, speeds and colors can be changed in the settings.
+
+### Bookmark — save this channel's defaults
+
+Clicking the bookmark saves the **current speed and current caption state** for the channel. A short fill-up animation plays and a tooltip confirms what was saved.
+
+| Icon | Meaning |
+|:---:|---|
+| <img src="docs/img/bookmark-none.svg" width="36"> | No speed saved for this channel yet |
+| <img src="docs/img/bookmark-saved.svg" width="36"> | Saved, and what is playing matches it |
+| <img src="docs/img/bookmark-changed.svg" width="36"> | Saved, but you changed the speed or captions since — click to update |
+
+A video that simply has no captions does not count as a change.
+
+### Caption group
+
+The rounded group holds two separate controls:
+
+**Caption button** (replaces YouTube's own) — what is happening *now*. Click it to toggle captions; the <kbd>C</kbd> key keeps working.
+
+| Icon | Meaning |
+|:---:|---|
+| <img src="docs/img/cc-on.svg" width="36"> | Captions on (red segment on the bottom edge) |
+| <img src="docs/img/cc-off.svg" width="36"> | Captions off |
+| <img src="docs/img/cc-none.svg" width="36"> | This video has no captions |
+
+**Pill switch** — the caption default *saved for the channel*. Clicking it saves immediately and does not change the captions currently shown.
+
+| Pill | Meaning |
+|:---:|---|
+| <img src="docs/img/pill-on.svg" width="54"> | Saved: captions on |
+| <img src="docs/img/pill-off.svg" width="54"> | Saved: captions off |
+| <img src="docs/img/pill-none.svg" width="54"> | Nothing saved — YouTube's own behaviour is kept |
+
+### Settings
+
+<img src="docs/img/tune.svg" width="28" align="absmiddle"> opens the settings panel (also available from the Tampermonkey menu → **Settings**).
+
+## Settings
+
+| Section | Option | What it does |
+|---|---|---|
+| Playback | Default Speed | Speed for channels without a saved speed |
+| | Audio Boost | Volume gain with a limiter (1 = off) |
+| | Start New Videos Paused | Videos opened in a new tab or by your own click start paused; playlists / autoplay-next keep playing |
+| Speed Buttons | Button Templates | Edit, add, remove and reorder the speed buttons |
+| | Current / Other Speeds | Text colors of the speed buttons |
+| Language | Interface Language | Auto (follow YouTube), English, 繁體中文 or a custom translation |
+| Display | Show Relative Time | Shows the current time and duration adjusted for the playback speed |
+| | Bottom Progress Bar | A thin progress bar along the bottom whenever the player controls are hidden (normal and fullscreen) |
+| | Hide Live Chat | Hides the live-chat panel (the playlist panel is unaffected) |
+| Automation | Fullscreen When I Press Play | Enters fullscreen the moment you press Play |
+| | Auto Exit Fullscreen on End | Leaves fullscreen 5 seconds before the video ends |
+
+## About auto fullscreen
+
+Browsers only allow a page to enter fullscreen right after you click or press a key. This script therefore enters fullscreen **when you press Play**, which works in Chrome, Edge and Firefox with no extra setup.
+
+> [!IMPORTANT]
+> Turn on **Start New Videos Paused** together with it. Every video then starts with your own Play press, so fullscreen always triggers.
+>
+> Videos that start by themselves (autoplay-next, or with Start Paused off) can only go fullscreen if the browser allows it:
+> - **Firefox:** open `about:config` and set `full-screen-api.allow-trusted-requests-only` to `false`.
+> - **Chrome / Edge:** add `https://www.youtube.com` to the enterprise policy `AutomaticFullscreenAllowedForUrls`.
+
+## Notes
+
+- Preferences are stored by Tampermonkey (keys starting with `_YSC-`; per-channel values use the channel's `@handle`).
+- Collaboration videos credit several channels; saving applies to all of them.
+- **Restore Default** in the settings resets every option to its default; custom translations are kept.
 
 ## License
 
