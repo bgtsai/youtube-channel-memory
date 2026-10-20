@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Channel Memory
 // @namespace    YouTubeChannelMemory
-// @version      1.2.44
+// @version      1.2.45
 // @description  Per-channel playback speed and subtitle preferences, with audio boost, real-time duration display, start-paused, fullscreen on play / auto-exit near the end, bottom progress bar, hide live chat, and custom language editor.
 // @author       bgtsai
 // @match        https://www.youtube.com/*
@@ -141,6 +141,7 @@
             labelAutoFullscreenOnPlay:     'Fullscreen When I Press Play',
             labelAutoFullscreenOnEnd:      'Auto Exit Fullscreen on End',
             fsNoteOk:                'With Start New Videos Paused on, fullscreen triggers when you press Play — no browser setup needed.',
+            fsNoteHint:              'Turn on Start New Videos Paused as well; otherwise videos that start by themselves need a browser setting.',
             fsNoteWarn:              '⚠ Start New Videos Paused is off: videos that start by themselves cannot go fullscreen until you change a browser setting — otherwise it will look broken.',
             labelAutoFullscreenLink: 'How to set up',
             fsHelpTitle:             'About Auto Fullscreen',
@@ -193,8 +194,10 @@
             playerCCStateNone:       'not set',
 
             // Settings panel — Custom Language row
-            labelCustomLang:         'Custom Language',
-            labelCustomLangSub:      'User-defined UI translations',
+            labelUiLang:             'Interface Language',
+            labelUiLangSub:          'Pick “Custom” for other languages',
+            optLangAuto:             'Auto (follow YouTube)',
+            labelCustomLang:         'Custom',
 
             // Custom Language editor
             clTitle:                 'Custom Language',
@@ -261,6 +264,7 @@
             labelAutoFullscreenOnPlay:     '按下播放時自動全螢幕',
             labelAutoFullscreenOnEnd:      '結束時自動退出全螢幕',
             fsNoteOk:                '已開啟「開啟新影片時先暫停」：按下播放即可全螢幕，瀏覽器不需額外設定。',
+            fsNoteHint:              '請搭配「開啟新影片時先暫停」；否則影片自己開始播放時，需到瀏覽器做額外設定。',
             fsNoteWarn:              '⚠ 未開啟「開啟新影片時先暫停」：影片自己開始播放時無法全螢幕，必須到瀏覽器做額外設定，否則看起來會像功能失效。',
             labelAutoFullscreenLink: '設定方法',
             fsHelpTitle:             '自動全螢幕說明',
@@ -313,8 +317,10 @@
             playerCCStateNone:       '未設定',
 
             // 設定面板 — 自訂語系列
+            labelUiLang:             '介面語言',
+            labelUiLangSub:          '其他語言請選「自訂語系」',
+            optLangAuto:             '自動（跟隨 YouTube）',
             labelCustomLang:         '自訂語系',
-            labelCustomLangSub:      '使用者自訂的介面翻譯',
 
             // 自訂語系編輯器
             clTitle:                 '自訂語系',
@@ -601,8 +607,13 @@
         /** Language code identifier for the custom language (e.g. "zh", "ja"). */
         CUSTOM_LANG_CODE: '',
 
-        /** When true, overrides the detected UI language with the custom language data. */
+        /** When true, overrides the detected UI language with the custom language data.
+         *  Kept in sync with UI_LANG ('custom' ⇔ true) for older versions. */
         USE_CUSTOM_LANG: false,
+
+        /** Interface language: 'auto' (follow YouTube), 'en', 'zh_tw' or 'custom'.
+         *  Empty means "not chosen yet" and is migrated from USE_CUSTOM_LANG. */
+        UI_LANG: '',
     };
 
     // Load persisted values into window globals, falling back to defaults.
@@ -649,7 +660,8 @@
      * @returns {Object}  A complete LANG-shaped object.
      */
     function buildActiveLang() {
-        const detected = LANGS[detectLang()];
+        const choice   = window['UI_LANG'];
+        const detected = LANGS[choice] || LANGS[detectLang()];
         if (!window['USE_CUSTOM_LANG']) return detected;
         const custom = parseCustomLang(window['CUSTOM_LANG']);
         const en = LANGS['en'];
@@ -662,7 +674,12 @@
         return result;
     }
 
-    // Re-apply the active language now that USE_CUSTOM_LANG has been loaded.
+    // Migrate the language choice from the older on/off switch, then keep the
+    // two settings consistent, and re-apply the active language.
+    if (!['auto', 'en', 'zh_tw', 'custom'].includes(window['UI_LANG'])) {
+        window['UI_LANG'] = window['USE_CUSTOM_LANG'] ? 'custom' : 'auto';
+    }
+    window['USE_CUSTOM_LANG'] = window['UI_LANG'] === 'custom';
     LANG = buildActiveLang();
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -828,7 +845,7 @@
                 transition: background 0.12s;
             }
             #ysc-settings-panel .ysc-row:hover { background: ${t.rowHover}; }
-            #ysc-settings-panel .ysc-cols { display: flex; gap: 12px; padding: 12px 12px 0; align-items: flex-start; }
+            #ysc-settings-panel .ysc-cols { display: flex; gap: 12px; padding: 12px; align-items: flex-start; }
             #ysc-settings-panel .ysc-col  { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
             #ysc-settings-panel.ysc-one-col .ysc-cols { flex-direction: column; align-items: stretch; }
             #ysc-settings-panel .ysc-card {
@@ -890,6 +907,12 @@
             #ysc-settings-panel .ysc-stepper-val::-webkit-inner-spin-button,
             #ysc-settings-panel .ysc-stepper-val::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
             /* Text input */
+            #ysc-settings-panel .ysc-select {
+                border-radius: 7px; padding: 5px 8px; font-size: 17px; outline: none; cursor: pointer;
+                background: ${t.inputBg}; border: 1px solid ${t.inputBorder}; color: ${t.inputColor};
+                font-family: inherit;
+            }
+            #ysc-settings-panel .ysc-select option { background: ${t.bg}; color: ${t.lbl}; }
             #ysc-settings-panel .ysc-input {
                 border-radius: 7px; padding: 5px 9px; font-size: 17px; outline: none;
                 background: ${t.inputBg}; border: 1px solid ${t.inputBorder}; color: ${t.inputColor};
@@ -1554,6 +1577,11 @@
               </section>
 
 
+              <div class="ysc-danger-zone" style="margin:0">
+                <div class="ysc-danger-label">${LANG.dangerZoneLabel}</div>
+                <div class="ysc-danger-desc">${LANG.dangerZoneDesc}</div>
+                <button class="ysc-btn-reset">${LANG.btnRestoreDefault}</button>
+              </div>
               </div>
               <div class="ysc-col">
 
@@ -1590,10 +1618,13 @@
               <section class="ysc-card">
               <div class="ysc-group">${LANG.sectionLanguage}</div>
               <div class="ysc-row">
-                <div class="ysc-lbl">${LANG.labelCustomLang}<small>${LANG.labelCustomLangSub}</small></div>
+                <div class="ysc-lbl">${LANG.labelUiLang}<small>${LANG.labelUiLangSub}</small></div>
                 <div style="display:flex;align-items:center;gap:8px;">
+                  <select class="ysc-select" id="ysc-ui-lang">
+                    ${[['auto', LANG.optLangAuto], ['en', 'English'], ['zh_tw', '繁體中文'], ['custom', LANG.labelCustomLang]]
+                        .map(([v, txt]) => `<option value="${v}"${(window['UI_LANG'] === v) ? ' selected' : ''}>${txt}</option>`).join('')}
+                  </select>
                   <button class="ysc-edit-btn" id="ysc-edit-lang">${LANG.labelBtnEdit}</button>
-                  <div class="ysc-toggle${cur['USE_CUSTOM_LANG'] ? ' on' : ''}" id="ysc-toggle-cl"></div>
                 </div>
               </div>
               </section>
@@ -1601,11 +1632,6 @@
               </div>
              </div>
 
-              <div class="ysc-danger-zone">
-                <div class="ysc-danger-label">${LANG.dangerZoneLabel}</div>
-                <div class="ysc-danger-desc">${LANG.dangerZoneDesc}</div>
-                <button class="ysc-btn-reset">${LANG.btnRestoreDefault}</button>
-              </div>
 
             </div>
             <div class="ysc-footer">
@@ -1631,7 +1657,7 @@
                 LANG.labelDefaultSpeed, LANG.labelAudioBoost, LANG.labelShowRelTime,
                 LANG.labelColorSelected, LANG.labelColorNormal,
                 LANG.labelAutoFullscreenOnPlay, LANG.labelAutoFullscreenOnEnd, LANG.labelButtonTemplates,
-                LANG.labelStartPaused, LANG.labelFsProgress, LANG.labelHideChat
+                LANG.labelStartPaused, LANG.labelFsProgress, LANG.labelHideChat, LANG.labelUiLang
             ];
             let maxLblW = 0;
             labels.forEach(txt => {
@@ -2696,7 +2722,8 @@
             const newPaused  = isOn('ysc-tg-startpaused');
             const newFsBar   = isOn('ysc-tg-fsbar');
             const newHideCh  = isOn('ysc-tg-hidechat');
-            const newUseCL   = document.getElementById('ysc-toggle-cl').classList.contains('on');
+            const newUiLang  = document.getElementById('ysc-ui-lang').value;
+            const newUseCL   = newUiLang === 'custom';
 
             // Persist all changed settings in parallel to avoid sequential
             // GM.setValue round-trips stalling the UI before the panel closes.
@@ -2713,6 +2740,7 @@
             saves.push(GM.setValue('_YSC-HIDE_LIVE_CHAT',      newHideCh));
             saves.push(GM.setValue('_YSC-BUTTON_TEMPLATES',   JSON.stringify(cur['BUTTON_TEMPLATES'])));
             saves.push(GM.setValue('_YSC-USE_CUSTOM_LANG',    newUseCL));
+            saves.push(GM.setValue('_YSC-UI_LANG',            newUiLang));
             await Promise.all(saves);
 
             // Update in-memory globals immediately so the rest of the script
@@ -2733,9 +2761,11 @@
             window['BUTTON_TEMPLATES']    = cur['BUTTON_TEMPLATES'];
             _applyPageFlags();
 
-            // If the custom language toggle changed, rebuild LANG and clear the
-            // panel width cache so the next open re-measures with the new strings.
-            if (newUseCL !== cur['USE_CUSTOM_LANG']) {
+            // If the interface language changed, rebuild LANG (applied right away:
+            // refreshContainers below rebuilds the player bar with the new strings)
+            // and clear the panel width cache so the next open re-measures.
+            if (newUiLang !== window['UI_LANG']) {
+                window['UI_LANG']         = newUiLang;
                 window['USE_CUSTOM_LANG'] = newUseCL;
                 LANG = buildActiveLang();
                 _panelMeasureCache = null;
@@ -2752,7 +2782,7 @@
             const pausedOn = document.getElementById('ysc-tg-startpaused').classList.contains('on');
             const warn     = fsOn && !pausedOn;
             document.getElementById('ysc-fs-note').classList.toggle('ysc-warn', warn);
-            document.getElementById('ysc-fs-note-txt').textContent = warn ? LANG.fsNoteWarn : LANG.fsNoteOk;
+            document.getElementById('ysc-fs-note-txt').textContent = warn ? LANG.fsNoteWarn : (pausedOn ? LANG.fsNoteOk : LANG.fsNoteHint);
         }
         updateFsNote();
         for (const tid of ['ysc-tg-fsstart', 'ysc-tg-startpaused']) {
@@ -2822,6 +2852,10 @@
                 for (let name in defaults) {
                     window[name] = (name === 'BUTTON_TEMPLATES') ? JSON.parse(defaults[name]) : defaults[name];
                 }
+                window['UI_LANG'] = 'auto';
+                window['USE_CUSTOM_LANG'] = false;
+                LANG = buildActiveLang();
+                _panelMeasureCache = null;
                 _applyPageFlags();
                 closePanel();
                 refreshContainers();
