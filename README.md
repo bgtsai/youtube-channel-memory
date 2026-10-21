@@ -68,11 +68,12 @@ The rounded group holds two separate controls:
 | | Audio Boost | Volume gain with a limiter (1 = off) |
 | | Start New Videos Paused | Videos opened in a new tab or by your own click start paused; playlists / autoplay-next keep playing |
 | Speed Buttons | Button Templates | Edit, add, remove and reorder the speed buttons |
-| | Current / Other Speeds | Text colors of the speed buttons |
+| | Current / Other Speeds | Text colors of the speed buttons (the color picker can be dragged by its top handle) |
 | Language | Interface Language | Auto (follow YouTube), English, 繁體中文 or a custom translation |
+| | Custom Language | Create a translation for any other language |
 | Display | Show Relative Time | Shows the current time and duration adjusted for the playback speed |
 | | Bottom Progress Bar | A thin progress bar along the bottom whenever the player controls are hidden (normal and fullscreen) |
-| | Hide Live Chat | Hides the live-chat panel (the playlist panel is unaffected) |
+| | Hide Live Chat | Hides the live-chat panel, in fullscreen too, without leaving an empty column (the playlist panel is unaffected) |
 | Automation | Fullscreen When I Press Play | Enters fullscreen the moment you press Play |
 | | Auto Exit Fullscreen on End | Leaves fullscreen 5 seconds before the video ends |
 

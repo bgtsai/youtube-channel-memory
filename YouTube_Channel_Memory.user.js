@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Channel Memory
 // @namespace    YouTubeChannelMemory
-// @version      1.2.50
+// @version      1.3.0
 // @description  Per-channel playback speed and subtitle preferences, with audio boost, real-time duration display, start-paused, fullscreen on play / auto-exit near the end, bottom progress bar, hide live chat, and custom language editor.
 // @author       bgtsai
 // @match        https://www.youtube.com/*
@@ -131,8 +131,10 @@
             labelAudioBoost:         'Audio Boost',
             labelAudioBoostSub:      '1 = disabled',
             labelShowRelTime:        'Show Relative Time',
-            labelColorSelected:      'Current Speed (text buttons)',
-            labelColorNormal:        'Other Speeds (text buttons)',
+            labelColorSelected:      'Current Speed',
+            labelColorNormal:        'Other Speeds',
+            labelColorSub:           'Color of text buttons',
+            cpDragHint:              'Drag to move',
             labelStartPaused:        'Start New Videos Paused',
             labelStartPausedSub:     'Playlists and autoplay-next keep playing',
             labelFsProgress:         'Bottom Progress Bar',
@@ -195,7 +197,8 @@
 
             // Settings panel — Custom Language row
             labelUiLang:             'Interface Language',
-            labelUiLangSub:          'Pick “Custom” for other languages',
+            labelCustomLangRow:      'Custom Language',
+            labelCustomLangRowSub:   'Create other languages here',
             optLangAuto:             'Auto (follow YouTube)',
             labelCustomLang:         'Custom',
 
@@ -254,8 +257,10 @@
             labelAudioBoost:         '音量增強',
             labelAudioBoostSub:      '1 = 停用',
             labelShowRelTime:        '顯示實際時間',
-            labelColorSelected:      '目前倍速（文字按鈕）',
-            labelColorNormal:        '其他倍速（文字按鈕）',
+            labelColorSelected:      '目前倍速',
+            labelColorNormal:        '其他倍速',
+            labelColorSub:           '文字按鈕的顏色',
+            cpDragHint:              '拖曳以移動',
             labelStartPaused:        '開啟新影片時先暫停',
             labelStartPausedSub:     '播放清單與自動播放下一部不受影響',
             labelFsProgress:         '底部細進度條',
@@ -318,7 +323,8 @@
 
             // 設定面板 — 自訂語系列
             labelUiLang:             '介面語言',
-            labelUiLangSub:          '其他語言請選「自訂語系」',
+            labelCustomLangRow:      '自訂語系',
+            labelCustomLangRowSub:   '其他語言在這裡建立',
             optLangAuto:             '自動（跟隨 YouTube）',
             labelCustomLang:         '自訂語系',
 
@@ -732,7 +738,7 @@
     /**
      * Cached layout measurements for the settings panel.
      * Computed once on first open, then reused to avoid redundant DOM work.
-     * @type {{ panelW: number, colorRowW: number, speedInputW: number } | null}
+     * @type {{ panelW: number, speedInputW: number } | null}
      */
     let _panelMeasureCache = null;
     async function openSettingsPanel() {
@@ -764,10 +770,11 @@
             toggleBg: '#3a3a3a', toggleBorder: 'rgba(255,255,255,0.08)',
             toggleOn: '#cc0000',
             editBg: '#2e2e2e', editBorder: 'rgba(255,255,255,0.1)', editColor: '#aaa',
-            sep: 'rgba(255,255,255,0.05)', groupLbl: '#bbb', groupBadgeBg: 'rgba(255,255,255,0.1)',
+            sep: 'rgba(255,255,255,0.05)', groupLbl: '#bbb',
             footerBg: '#1e1e1e', footerBorder: 'rgba(255,255,255,0.06)',
             btnResetBg: '#2e2e2e', btnResetBorder: 'rgba(255,255,255,0.1)', btnResetColor: '#888',
-            overlayBg: 'rgba(0,0,0,0.6)'
+            overlayBg: 'rgba(0,0,0,0.6)',
+            tsHead: '#ffffff', tsItem: '#f1f1f1', tsDesc: '#a6a6a6', cardHdrBorder: 'rgba(255,255,255,0.08)'
         } : {
             bg: '#fff', hdrBg: '#f7f7f7', hdrBorder: 'rgba(0,0,0,0.08)',
             title: '#111', closeBg: 'rgba(0,0,0,0.07)', closeColor: '#777',
@@ -780,10 +787,11 @@
             toggleBg: '#ddd', toggleBorder: 'rgba(0,0,0,0.1)',
             toggleOn: '#cc0000',
             editBg: '#f2f2f2', editBorder: 'rgba(0,0,0,0.12)', editColor: '#666',
-            sep: 'rgba(0,0,0,0.06)', groupLbl: '#555', groupBadgeBg: 'rgba(0,0,0,0.08)',
+            sep: 'rgba(0,0,0,0.06)', groupLbl: '#555',
             footerBg: '#f7f7f7', footerBorder: 'rgba(0,0,0,0.07)',
             btnResetBg: '#efefef', btnResetBorder: 'rgba(0,0,0,0.1)', btnResetColor: '#888',
-            overlayBg: 'rgba(0,0,0,0.35)'
+            overlayBg: 'rgba(0,0,0,0.35)',
+            tsHead: '#0f0f0f', tsItem: '#1f1f1f', tsDesc: '#606060', cardHdrBorder: 'rgba(0,0,0,0.08)'
         };
 
         // Inject or refresh the panel + color-picker stylesheet.
@@ -823,7 +831,10 @@
             }
             #ysc-settings-panel .ysc-hdr-left { display: flex; align-items: center; gap: 8px; }
             #ysc-settings-panel .ysc-yt-logo { width: 22px; height: 15px; flex-shrink: 0; }
-            #ysc-settings-panel .ysc-title { font-size: 20px; font-weight: 700; color: ${t.title}; letter-spacing: 0.2px; }
+            /* Type scale (16px floor, +2px per level, each level also changes weight or colour):
+               L4 panel title 22/700 · L3 card header 20/700 · L2 item name 18/500 · L1 description 16/400 grey.
+               A 1px step (old 17/16) was invisible, so levels differ by at least 2px. */
+            #ysc-settings-panel .ysc-title { font-size: 22px; font-weight: 700; color: ${t.tsHead}; }
             #ysc-settings-panel .ysc-close {
                 width: 22px; height: 22px; border-radius: 50%; border: none;
                 background: ${t.closeBg}; color: ${t.closeColor};
@@ -831,25 +842,26 @@
                 flex-shrink: 0; transition: background 0.15s;
             }
             #ysc-settings-panel .ysc-body { overflow-y: auto; padding: 4px 0 0; flex: 1; }
+            /* L3: card header row (title bar of the card, not a floating badge). */
             #ysc-settings-panel .ysc-group {
-                font-size: 18px; letter-spacing: 0.5px;
-                color: ${t.groupLbl}; font-weight: 600;
-                background: ${t.groupBadgeBg}; border-radius: 4px;
-                padding: 2px 7px; margin: 10px 16px 6px;
-                width: fit-content;
+                font-size: 20px; font-weight: 700; color: ${t.tsHead};
+                height: 48px; padding: 0 16px; box-sizing: border-box;
+                display: flex; align-items: center;
+                border-bottom: 1px solid ${t.cardHdrBorder};
             }
+            /* Fixed row height: one rhythm whether or not a row has a description. */
             #ysc-settings-panel .ysc-row {
                 display: flex; align-items: center; justify-content: space-between;
-                padding: 8px 16px;
+                box-sizing: border-box; min-height: 64px; padding: 6px 16px; gap: 16px;
                 position: relative;
                 transition: background 0.12s;
             }
             #ysc-settings-panel .ysc-row:hover { background: ${t.rowHover}; }
-            #ysc-settings-panel .ysc-cols { display: flex; gap: 12px; padding: 12px; align-items: flex-start; }
-            #ysc-settings-panel .ysc-col  { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+            #ysc-settings-panel .ysc-cols { display: flex; gap: 16px; padding: 16px; align-items: flex-start; }
+            #ysc-settings-panel .ysc-col  { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
             #ysc-settings-panel.ysc-one-col .ysc-cols { flex-direction: column; align-items: stretch; }
             #ysc-settings-panel .ysc-card {
-                border-radius: 10px; padding: 2px 0 6px; overflow: hidden;
+                border-radius: 10px; padding: 0; overflow: hidden;
                 background: ${isDark ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.025)'};
                 border: 1px solid ${t.rowBorder};
             }
@@ -860,8 +872,16 @@
             }
             #ysc-settings-panel .ysc-row:has(+ .ysc-sep)::after,
             #ysc-settings-panel .ysc-row:has(+ .ysc-danger-zone)::after { display: none; }
-            #ysc-settings-panel .ysc-lbl { font-size: 17px; color: ${t.lbl}; }
-            #ysc-settings-panel .ysc-lbl small { display: block; font-size: 16px; color: ${t.lblSub}; margin-top: 1px; }
+            /* L2 item name / L1 description. Never indent the description: in settings
+               UIs indentation means "child setting". keep-all + balance avoids orphan characters. */
+            #ysc-settings-panel .ysc-lbl {
+                flex: 1 1 auto; min-width: 0; font-size: 18px; font-weight: 500; line-height: 1.35;
+                color: ${t.tsItem}; word-break: keep-all; text-wrap: balance;
+            }
+            #ysc-settings-panel .ysc-lbl small {
+                display: block; font-size: 16px; font-weight: 400; line-height: 1.35;
+                color: ${t.tsDesc}; margin-top: 4px;
+            }
             #ysc-settings-panel .ysc-help-link { color: ${isDark ? '#3ea6ff' : '#065fd4'}; font-weight: 600; text-decoration: underline; }
             #ysc-settings-panel .ysc-note.ysc-warn {
                 margin: 2px 16px 10px; padding: 8px 10px; border-radius: 6px; line-height: 1.5;
@@ -881,14 +901,16 @@
                 background: ${isDark ? 'rgba(255,200,97,0.12)' : 'rgba(245,166,35,0.14)'};
             }
             #ysc-cl-confirm-dialog .cld-rich b { color: ${t.title}; }
+            /* L1 card footnote: the last block inside its card, below the rows. */
             #ysc-settings-panel .ysc-note {
-                padding: 2px 16px 8px; font-size: 16px; color: ${t.lblSub};
+                padding: 12px 16px 14px; font-size: 16px; line-height: 1.45; color: ${t.tsDesc};
+                border-top: 1px solid ${t.cardHdrBorder};
             }
             #ysc-settings-panel .ysc-sep { height: 1px; background: ${t.sep}; margin: 2px 0; }
             /* Stepper */
             #ysc-settings-panel .ysc-stepper {
                 display: flex; align-items: center; border-radius: 7px; overflow: hidden;
-                height: 28px; flex-shrink: 0;
+                height: 28px; flex-shrink: 0; box-sizing: border-box; width: 120px;
                 background: ${t.stepperBg}; border: 1px solid ${t.stepperBorder};
             }
             #ysc-settings-panel .ysc-stepper-btn {
@@ -899,8 +921,8 @@
             }
             #ysc-settings-panel .ysc-stepper-btn:hover { background: ${t.stepperBtnHover}; }
             #ysc-settings-panel .ysc-stepper-val {
-                width: 46px; height: 28px; border: none; background: transparent;
-                color: ${t.stepperValColor}; font-size: 17px; text-align: center; outline: none;
+                flex: 1; min-width: 0; width: auto; height: 28px; border: none; background: transparent;
+                color: ${t.stepperValColor}; font-size: 16px; text-align: center; outline: none;
                 border-left: 1px solid ${t.stepperDivider}; border-right: 1px solid ${t.stepperDivider};
                 -moz-appearance: textfield;
             }
@@ -908,7 +930,7 @@
             #ysc-settings-panel .ysc-stepper-val::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
             /* Text input */
             #ysc-settings-panel .ysc-select {
-                border-radius: 7px; padding: 5px 8px; font-size: 17px; outline: none; cursor: pointer;
+                border-radius: 7px; padding: 5px 8px; font-size: 16px; outline: none; cursor: pointer;
                 background: ${t.inputBg}; border: 1px solid ${t.inputBorder}; color: ${t.inputColor};
                 font-family: inherit;
             }
@@ -921,8 +943,9 @@
             #ysc-settings-panel .ysc-input:focus { border-color: rgba(200,0,0,0.5); }
             /* Color row (new style) */
             #ysc-settings-panel .ysc-color-row {
-                display: flex; align-items: center;
-                padding: 5px 8px; border-radius: 7px; cursor: pointer;
+                display: flex; align-items: center; gap: 6px; flex-shrink: 0;
+                box-sizing: border-box; width: 120px; height: 30px;
+                padding: 0 7px; border-radius: 7px; cursor: pointer;
                 border: 1px solid ${isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)'};
                 transition: background 0.15s, border-color 0.15s;
             }
@@ -932,24 +955,27 @@
             }
             #ysc-settings-panel .ysc-color-text {
                 font-size: 16px; color: ${t.inputColor};
-                font-family: 'Courier New', monospace;
-                white-space: nowrap; padding-right: 8px;
+                font-variant-numeric: tabular-nums; white-space: nowrap;
             }
             #ysc-settings-panel .ysc-swatch {
                 width: 18px; height: 18px; border-radius: 4px; flex-shrink: 0;
                 border: 1px solid ${t.inputBorder};
-                margin-left: auto;
+                order: -1;
             }
             /* Toggle */
             #ysc-settings-panel .ysc-toggle {
-                width: 38px; height: 22px; border-radius: 11px; position: relative;
+                box-sizing: border-box; width: 40px; height: 24px; border-radius: 12px; position: relative;
                 cursor: pointer; flex-shrink: 0;
                 background: ${t.toggleBg}; border: 1px solid ${t.toggleBorder};
                 transition: background 0.2s, border-color 0.2s;
             }
             #ysc-settings-panel .ysc-toggle::after {
                 content: ''; position: absolute;
-                width: 16px; height: 16px; background: #fff; border-radius: 50%;
+                /* Track is border-box 40x24 with a 1px border, so the padding box is 38x22:
+                   an 18px knob at top/left 2px leaves 2px on every side. The old content-box
+                   38x22 track drew as 40x24 with a 16px knob (2px above, 4px below), which
+                   looked vertically stretched. */
+                width: 18px; height: 18px; background: #fff; border-radius: 50%;
                 top: 2px; left: 2px; transition: left 0.2s;
                 box-shadow: 0 1px 3px rgba(0,0,0,0.25);
             }
@@ -957,7 +983,8 @@
             #ysc-settings-panel .ysc-toggle.on::after { left: 18px; }
             /* Edit btn */
             #ysc-settings-panel .ysc-edit-btn {
-                border-radius: 7px; padding: 5px 11px; font-size: 17px; cursor: pointer;
+                box-sizing: border-box; width: 120px; height: 30px; flex-shrink: 0;
+                border-radius: 7px; padding: 0; font-size: 16px; cursor: pointer;
                 background: ${t.editBg}; border: 1px solid ${t.editBorder}; color: ${t.editColor};
                 transition: background 0.12s; white-space: nowrap;
             }
@@ -1248,9 +1275,10 @@
                 background: ${isDark ? 'rgba(140,0,0,0.08)' : 'rgba(180,40,40,0.04)'};
             }
             #ysc-settings-panel .ysc-danger-label {
-                font-size: 18px; letter-spacing: 0.5px;
-                color: ${isDark ? 'rgba(200,80,80,0.7)' : 'rgba(160,40,40,0.6)'};
-                font-weight: 600; margin-bottom: 8px;
+                /* L3 like the card headers, kept red. */
+                font-size: 20px; font-weight: 700;
+                color: ${isDark ? '#ff6b6b' : '#c00000'};
+                margin-bottom: 8px;
             }
             #ysc-settings-panel .ysc-danger-desc {
                 font-size: 16px; color: ${isDark ? 'rgba(200,150,150,0.55)' : 'rgba(140,60,60,0.55)'};
@@ -1357,9 +1385,14 @@
               box-shadow: 0 8px 28px rgba(0,0,0,0.13), 0 1px 4px rgba(0,0,0,0.08);
             }
 
+            /* ── Drag handle: the only part that moves the picker; the gradient
+                  box below keeps its own drag for picking colours. ── */
+            #ysc-cp .cp-drag { height: 14px; cursor: move; display: flex; align-items: center; justify-content: center; touch-action: none; }
+            #ysc-cp .cp-drag span { width: 32px; height: 4px; border-radius: 2px; background: rgba(128,128,128,0.45); }
+
             /* ── Gradient box ── */
             #ysc-cp .cp-grad-wrap {
-              padding: 9px 9px 0;
+              padding: 0 9px 0;
             }
             #ysc-cp .cp-grad-box {
               width:100%; height:140px; position:relative; cursor:crosshair;
@@ -1561,14 +1594,14 @@
                 <button class="ysc-edit-btn" id="ysc-edit-btns">${LANG.labelBtnEdit}</button>
               </div>
               <div class="ysc-row">
-                <div class="ysc-lbl">${LANG.labelColorSelected}</div>
+                <div class="ysc-lbl">${LANG.labelColorSelected}<small>${LANG.labelColorSub}</small></div>
                 <div class="ysc-color-row" id="ysc-color-sel-row">
                   <span class="ysc-color-text" id="ysc-color-sel-txt"></span>
                   <span class="ysc-swatch" id="ysc-color-sel-swatch"></span>
                 </div>
               </div>
               <div class="ysc-row">
-                <div class="ysc-lbl">${LANG.labelColorNormal}</div>
+                <div class="ysc-lbl">${LANG.labelColorNormal}<small>${LANG.labelColorSub}</small></div>
                 <div class="ysc-color-row" id="ysc-color-nor-row">
                   <span class="ysc-color-text" id="ysc-color-nor-txt"></span>
                   <span class="ysc-swatch" id="ysc-color-nor-swatch"></span>
@@ -1581,14 +1614,15 @@
               <section class="ysc-card">
               <div class="ysc-group">${LANG.sectionLanguage}</div>
               <div class="ysc-row">
-                <div class="ysc-lbl">${LANG.labelUiLang}<small>${LANG.labelUiLangSub}</small></div>
-                <div style="display:flex;align-items:center;gap:8px;">
+                <div class="ysc-lbl">${LANG.labelUiLang}</div>
                   <select class="ysc-select" id="ysc-ui-lang">
                     ${[['auto', LANG.optLangAuto], ['en', 'English'], ['zh_tw', '繁體中文'], ['custom', LANG.labelCustomLang]]
                         .map(([v, txt]) => `<option value="${v}"${(window['UI_LANG'] === v) ? ' selected' : ''}>${txt}</option>`).join('')}
                   </select>
-                  <button class="ysc-edit-btn" id="ysc-edit-lang">${LANG.labelBtnEdit}</button>
-                </div>
+              </div>
+              <div class="ysc-row">
+                <div class="ysc-lbl">${LANG.labelCustomLangRow}<small>${LANG.labelCustomLangRowSub}</small></div>
+                <button class="ysc-edit-btn" id="ysc-edit-lang">${LANG.labelBtnEdit}</button>
               </div>
               </section>
 
@@ -1613,7 +1647,6 @@
 
               <section class="ysc-card">
               <div class="ysc-group">${LANG.sectionAutomation}</div>
-              <div class="ysc-note" id="ysc-fs-note"><span id="ysc-fs-note-txt"></span> <a class="ysc-help-link" id="ysc-fs-help" href="#">${LANG.labelAutoFullscreenLink}</a></div>
               <div class="ysc-row">
                 <div class="ysc-lbl">${LANG.labelAutoFullscreenOnPlay}</div>
                 <div class="ysc-toggle${cur['FULLSCREEN_ON_START'] ? ' on' : ''}" id="ysc-tg-fsstart"></div>
@@ -1622,6 +1655,7 @@
                 <div class="ysc-lbl">${LANG.labelAutoFullscreenOnEnd}</div>
                 <div class="ysc-toggle${cur['FULLSCREEN_ON_END'] ? ' on' : ''}" id="ysc-tg-fsend"></div>
               </div>
+              <div class="ysc-note" id="ysc-fs-note"><span id="ysc-fs-note-txt"></span> <a class="ysc-help-link" id="ysc-fs-help" href="#">${LANG.labelAutoFullscreenLink}</a></div>
               </section>
 
 
@@ -1653,7 +1687,8 @@
         // subsequent panel opens skip the measurement entirely.
         if (!_panelMeasureCache) {
             const measureEl = document.createElement('div');
-            measureEl.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font-family:-apple-system,"Helvetica Neue",Arial,sans-serif;font-size:17px;';
+            // Same font as the L2 item name (18px / 500) so the measured width matches what is drawn.
+            measureEl.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font-family:-apple-system,"Helvetica Neue",Arial,sans-serif;font-size:18px;font-weight:500;';
             document.body.appendChild(measureEl);
 
             // Measure the widest label string.
@@ -1661,27 +1696,32 @@
                 LANG.labelDefaultSpeed, LANG.labelAudioBoost, LANG.labelShowRelTime,
                 LANG.labelColorSelected, LANG.labelColorNormal,
                 LANG.labelAutoFullscreenOnPlay, LANG.labelAutoFullscreenOnEnd, LANG.labelButtonTemplates,
-                LANG.labelStartPaused, LANG.labelFsProgress, LANG.labelHideChat, LANG.labelUiLang
+                LANG.labelStartPaused, LANG.labelFsProgress, LANG.labelHideChat, LANG.labelUiLang,
+                LANG.labelCustomLangRow
             ];
             let maxLblW = 0;
             labels.forEach(txt => {
                 measureEl.textContent = txt;
                 maxLblW = Math.max(maxLblW, measureEl.scrollWidth);
             });
-
-            // Measure the widest color display string (used to size the color-row widget).
-            const colorProbe = document.createElement('div');
-            colorProbe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font-family:"Courier New",monospace;font-size:16px;';
-            document.body.appendChild(colorProbe);
-            const colorSamples = ['RGB( 999, 999, 999 )', 'HSV( 360, 100, 100 )', '#FFFFFF'];
-            let maxColorTxtW = 0;
-            colorSamples.forEach(txt => {
-                colorProbe.textContent = txt;
-                maxColorTxtW = Math.max(maxColorTxtW, colorProbe.scrollWidth);
+            // Descriptions (L1, 16px / 400) share the label column; include them so a
+            // one-line description does not wrap just because its name is short.
+            measureEl.style.fontSize = '16px'; measureEl.style.fontWeight = '400';
+            [LANG.labelDefaultSpeedSub, LANG.labelAudioBoostSub, LANG.labelStartPausedSub,
+             LANG.labelFsProgressSub, LANG.labelColorSub, LANG.labelCustomLangRowSub].forEach(txt => {
+                measureEl.textContent = txt;
+                maxLblW = Math.max(maxLblW, measureEl.scrollWidth);
             });
-            colorProbe.remove();
+            measureEl.remove();
 
-            // Measure speed input width against the widest realistic value ("3.500").
+            // Every right-hand control (stepper, colour row, edit button) is CONTROL_COL_W
+            // wide in CSS, so they line up in one column.
+            const CONTROL_COL_W = 120;
+            // Panel total width: left-pad 16 + widest-label + gap 16 + control column + right-pad 16
+            const panelW = 16 + maxLblW + 16 + CONTROL_COL_W + 16;
+
+            // Speed input width in the button-template editor, against the widest
+            // realistic value ("3.500"); that editor still uses 17px inputs.
             const speedProbe = document.createElement('div');
             speedProbe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font-family:-apple-system,"Helvetica Neue",Arial,sans-serif;font-size:17px;';
             speedProbe.textContent = '3.500';
@@ -1689,40 +1729,26 @@
             const speedInputW = speedProbe.scrollWidth + 16 + 2; // padding 8×2 + border 2
             speedProbe.remove();
 
-            measureEl.remove();
-
-            // color-row total width: text + padding-right 8px + swatch 18px + border 2px + padding 16px
-            const colorRowW = maxColorTxtW + 8 + 18 + 2 + 16;
-            // stepper fixed width: dec-btn 28 + border 1 + input 46 + border 1 + inc-btn 28 = 104px
-            const maxControlW = Math.max(colorRowW, 104);
-            // Panel total width: left-pad 16 + widest-label + gap 16 + widest-control + right-pad 16
-            const panelW = 16 + maxLblW + 16 + maxControlW + 16;
-
-            _panelMeasureCache = { panelW, colorRowW, speedInputW };
+            _panelMeasureCache = { panelW, speedInputW };
         }
-        const { panelW, colorRowW, speedInputW } = _panelMeasureCache;
+        const { panelW, speedInputW } = _panelMeasureCache;
 
         // Two columns (each as wide as the old single-column panel) when the
         // viewport allows it; otherwise fall back to a single column.
         {
             const panelEl = document.getElementById('ysc-settings-panel');
-            const twoColW = 2 * panelW + 12 * 3;
+            const twoColW = 2 * panelW + 16 * 3;
             const twoCol  = window.innerWidth >= twoColW + 32;
             panelEl.classList.toggle('ysc-one-col', !twoCol);
             panelEl.style.width = (twoCol ? twoColW : panelW + 24) + 'px';
         }
-
-        // Lock each color-row to the same computed width.
-        document.querySelectorAll('.ysc-color-row').forEach(el => {
-            el.style.width = colorRowW + 'px';
-        });
 
         // Initialise the color-row display text and swatch from saved values.
         function cpFormatColor(hexOrCss) {
             const hex = cpCssToHex(hexOrCss) || hexOrCss;
             const rgb = cpHexToRgb(hex);
             if (!rgb) return { display: hexOrCss, hex: hexOrCss };
-            return { display: `RGB( ${rgb.r}, ${rgb.g}, ${rgb.b} )`, hex };
+            return { display: hex.toUpperCase(), hex };
         }
         [
             { rowId: 'ysc-color-sel-row', txtId: 'ysc-color-sel-txt', swatchId: 'ysc-color-sel-swatch', val: cur['COLOR_SELECTED'] },
@@ -2310,6 +2336,7 @@
                 document.body.insertAdjacentHTML('beforeend', `
 <div id="ysc-cp-wrap" style="position:fixed;inset:0;z-index:2300;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.45);">
   <div id="ysc-cp">
+    <div class="cp-drag" title="${LANG.cpDragHint}"><span></span></div>
     <div class="cp-grad-wrap">
     <div class="cp-grad-box">
       <div class="cp-grad-white"></div>
@@ -2402,6 +2429,26 @@
                 const step1     = cp.querySelector('.cp-stepper1');
                 const step2     = cp.querySelector('.cp-stepper2');
                 const step3     = cp.querySelector('.cp-stepper3');
+
+                // Drag the picker by its top handle so it can be moved off the
+                // settings it is editing. Offset is applied with transform, which
+                // does not disturb the centring flex layout of the overlay.
+                {
+                    const handle = cp.querySelector('.cp-drag');
+                    let dx = 0, dy = 0, sx = 0, sy = 0, dragging = false;
+                    handle.addEventListener('pointerdown', e => {
+                        dragging = true; sx = e.clientX - dx; sy = e.clientY - dy;
+                        handle.setPointerCapture(e.pointerId); e.preventDefault();
+                    });
+                    handle.addEventListener('pointermove', e => {
+                        if (!dragging) return;
+                        dx = e.clientX - sx; dy = e.clientY - sy;
+                        cp.style.transform = `translate(${dx}px, ${dy}px)`;
+                    });
+                    const end = () => { dragging = false; };
+                    handle.addEventListener('pointerup', end);
+                    handle.addEventListener('pointercancel', end);
+                }
 
                 /**
                  * Re-renders the entire color picker UI from cpState.
@@ -2670,14 +2717,9 @@
                         : cpHsvToRgb(cpState.h, cpState.s, cpState.v);
                     const hex = cpRgbToHex(rgbVal.r, rgbVal.g, rgbVal.b);
 
-                    let displayVal;
-                    if (cpState.mode === 'HEX') {
-                        displayVal = hex.toUpperCase();
-                    } else if (cpState.mode === 'RGB') {
-                        displayVal = `RGB( ${cpState.r}, ${cpState.g}, ${cpState.b} )`;
-                    } else {
-                        displayVal = `HSV( ${Math.round(cpState.h)}, ${Math.round(cpState.s*100)}, ${Math.round(cpState.v*100)} )`;
-                    }
+                    // The settings row always shows #HEX: a fixed-width short form keeps the
+                    // control column aligned (RGB( 255, 255, 255 ) was twice as wide).
+                    const displayVal = hex.toUpperCase();
 
                     // Write selected color back to the color-row (display text, swatch, dataset).
                     txt.textContent         = displayVal;
@@ -3533,6 +3575,11 @@
         /* Hide live chat (the playlist panel is a different element and stays). */
         html[ycm-hide-chat] ytd-live-chat-frame,
         html[ycm-hide-chat] #chat-container { display: none !important; }
+        /* Fullscreen "squeezeback" layout moves the chat into #panels-full-bleed-container,
+           which YouTube sizes to the sidebar width (528px). Hiding only the chat left that
+           box as an empty strip on the right. The same box also hosts description/comment
+           panels, so it is only hidden while none of them is expanded. */
+        html[ycm-hide-chat] ytd-watch-flexy[squeezeback] #panels-full-bleed-container:not(:has(ytd-engagement-panel-section-list-renderer[visibility="ENGAGEMENT_PANEL_VISIBILITY_EXPANDED"])) { display: none !important; }
     `;
     (document.head || document.documentElement).appendChild(_pageStyle);
 
@@ -3541,7 +3588,15 @@
         const root = document.documentElement;
         root.toggleAttribute('ycm-fsbar', !!window['FS_PROGRESS_BAR']);
         root.toggleAttribute('ycm-hide-chat', !!window['HIDE_LIVE_CHAT']);
+        _nudgePlayerResize();
     }
+    /** The player sizes the <video> from its container in JS; after our CSS changes the
+     *  container width, a resize event makes it re-measure instead of keeping the old size. */
+    function _nudgePlayerResize() {
+        if (!window['HIDE_LIVE_CHAT']) return;
+        requestAnimationFrame(() => requestAnimationFrame(() => window.dispatchEvent(new Event('resize'))));
+    }
+    document.addEventListener('fullscreenchange', _nudgePlayerResize);
     _applyPageFlags();
 
     // ─────────────────────────────────────────────────────────────────────────
