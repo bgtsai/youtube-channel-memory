@@ -8,7 +8,8 @@ the whole page goes fullscreen first and must be repaired.
 
 Negative controls: v1.3.0 (play listener after the awaits) left the video
 playing (1.44 s after 1.5 s); v1.3.1 judged a fullscreen requested 1.5 s
-after the click as 'not granted' and never repaired the layout.
+after the click as 'not granted' and never repaired the layout; v1.3.2
+logged 'video fullscreen OK' and then lost the layout at yt-navigate-finish.
 
 usage: python3 tests/play_fullscreen_test.py
 """
@@ -40,11 +41,11 @@ window.__ytPlay = ytPlay;
 setTimeout(() => flexy.setAttribute('video-id', 'abc'), LATE ? LATE : 0);     // page data arrives
 const layout = () => flexy.toggleAttribute('fullscreen', !!document.fullscreenElement);
 setTimeout(() => document.addEventListener('fullscreenchange', layout), LATE); // handler attached late
-// page load completes after fullscreen: YouTube re-initialises the watch page and drops [fullscreen]
-if (RESET) setTimeout(() => {
+// page load completes (yt-navigate-finish): YouTube re-initialises the watch page and drops [fullscreen]
+setTimeout(() => {
   if (DROP) document.removeEventListener('fullscreenchange', layout);           // and does not listen again
   flexy.removeAttribute('fullscreen'); document.dispatchEvent(new Event('yt-navigate-finish'));
-}, RESET);
+}, RESET || 300);
 window.__exitFs = () => document.exitFullscreen();
 </script></body></html>"""
 
@@ -102,25 +103,28 @@ async def main():
         check('start paused: hold listener and hook ready before settings loaded', 'listener attached (start paused = true)' in r['logs'][0] and 'hook installed' in r['logs'][1], r['logs'][:3])
         r = await run(b, port, {'_YSC-START_PAUSED': False})
         check('start paused off: video keeps playing', not r['paused'], r['t'])
-        r = await run(b, port, {'_YSC-START_PAUSED': True, '_YSC-FULLSCREEN_ON_START': True}, late=0, click=True)
-        check('fullscreen, page ready: video fullscreen OK at once', r['fs'] and r['layout'] and any('video fullscreen OK' in l for l in r['logs']), [l for l in r['logs'] if 'auto' in l])
+        FS = {'_YSC-START_PAUSED': True, '_YSC-FULLSCREEN_ON_START': True}
+        r = await run(b, port, FS, click=True)
+        al = [l for l in r['logs'] if 'auto' in l]
+        check('page already loaded: fullscreen at once, video layout OK', r['fs'] and r['layout'] and any('page already loaded' in l for l in al) and any('video fullscreen OK' in l for l in al), al)
         check('user press plays normally (hold released)', not r['paused'] and r['t'] > 0.5, r['t'])
-        r = await run(b, port, {'_YSC-START_PAUSED': True, '_YSC-FULLSCREEN_ON_START': True}, late=5000, click=True, wait=8000, fsdelay=1500)
-        al = [l for l in r['logs'] if 'auto' in l]
-        check('fullscreen requested 1.5 s after click (like YouTube): watched, entered, layout repaired', r['fs'] and r['layout'] and any('entered' in l for l in al) and any('YouTube re-applied' in l for l in r['logs']) and not any('not granted' in l for l in al), al)
-        r = await run(b, port, {'_YSC-START_PAUSED': True, '_YSC-FULLSCREEN_ON_START': True}, late=4000, click=True, wait=6000)
-        al = [l for l in r['logs'] if 'auto' in l]
-        check('fullscreen, YouTube late: whole page first, then layout repaired, still fullscreen', r['fs'] and r['layout'] and any('whole page' in l for l in al) and any('YouTube re-applied' in l for l in r['logs']), r['logs'][-4:])
-        r = await run(b, port, {'_YSC-START_PAUSED': True, '_YSC-FULLSCREEN_ON_START': True}, late=60000, click=True, wait=5000)
+        # the reported case: Play pressed while the page is still loading (finish at 2.5 s, ~1 s after Play)
+        r = await run(b, port, FS, click=True, wait=4000, reset=2500)
+        al = [l for l in r['logs'] if 'auto' in l or 'guard' in l]
+        check('page still loading: waits for yt-navigate-finish, then fullscreen, layout never lost', r['fs'] and r['layout'] and any('waiting for the page' in l for l in al) and any('clicking (page load finished' in l for l in al) and not any('layout lost' in l for l in al), al)
+        # page load takes longer than the wait: click at the deadline, guard logs the state
+        r = await run(b, port, FS, click=True, wait=8000, reset=7000)
+        al = [l for l in r['logs'] if 'auto' in l or 'guard' in l]
+        check('page loads too slowly: clicks after the max wait (~3.5 s after Play)', any('waited the maximum' in l for l in al), al)
+        check('...then the reset is caught, state logged, layout restored when YouTube re-applies', r['fs'] and r['layout'] and any('fs guard: state fsEl=' in l for l in al) and any('video layout back' in l for l in al), [l for l in al if 'guard' in l])
+        # YouTube requests fullscreen 1.5 s after the click and misses fullscreenchange until 5 s
+        r = await run(b, port, FS, late=5000, click=True, wait=8000, fsdelay=1500)
+        al = [l for l in r['logs'] if 'auto' in l or 'guard' in l]
+        check('delayed fullscreen request: watched, entered, layout back once YouTube listens', r['fs'] and r['layout'] and any('entered 15' in l for l in al) and any('video layout back' in l for l in al) and not any('not granted' in l for l in al), al)
+        # YouTube never re-applies: stay fullscreen, hint, and never set the attribute ourselves
+        r = await run(b, port, FS, late=60000, click=True, wait=12500)
         g = [l for l in r['logs'] if 'guard' in l]
-        check('YouTube never re-applies: we set the attribute after 2 s, still fullscreen', r['fs'] and r['layout'] and any('set ytd-watch-flexy[fullscreen] ourselves' in l for l in g), g)
-        # the reported case: fullscreen OK, then page load completes and resets the layout
-        r = await run(b, port, {'_YSC-START_PAUSED': True, '_YSC-FULLSCREEN_ON_START': True}, click=True, wait=4000, reset=2500)
-        g = [l for l in r['logs'] if 'guard' in l]
-        check('layout reset after fullscreen OK (yt-navigate-finish): restored by re-sending', r['fs'] and r['layout'] and any('layout lost' in l for l in g) and any('YouTube re-applied' in l for l in g), g)
-        r = await run(b, port, {'_YSC-START_PAUSED': True, '_YSC-FULLSCREEN_ON_START': True}, click=True, wait=5000, reset=2500, drop=True, exit_after=True)
-        g = [l for l in r['logs'] if 'guard' in l]
-        check('layout reset and YouTube stops listening: we set it, and remove it after exit', not r['fs'] and not r['layout'] and any('ourselves' in l for l in g) and any('removed the fullscreen attribute' in l for l in g), g)
+        check('never restored: stays fullscreen, shows hint, no attribute forcing', r['fs'] and not r['layout'] and any('showing hint' in l for l in g) and not any('ourselves' in l for l in g), g)
         check('no script errors', not any(l.startswith('SCRIPT') for l in r['logs']))
         await b.close()
     srv.shutdown()

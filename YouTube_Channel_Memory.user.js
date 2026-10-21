@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Channel Memory
 // @namespace    YouTubeChannelMemory
-// @version      1.3.3
+// @version      1.3.4
 // @description  Per-channel playback speed and subtitle preferences, with audio boost, real-time duration display, start-paused, fullscreen on play / auto-exit near the end, bottom progress bar, hide live chat, and custom language editor.
 // @author       bgtsai
 // @match        https://www.youtube.com/*
@@ -123,6 +123,18 @@
 
     /** Hold state: while armed, playback that the user did not start is paused. */
     const _playHold = { armed: true, since: performance.now() };
+
+    // Page-load completion for the CURRENT video. YouTube re-initialises the
+    // watch page on yt-navigate-finish (dropping its fullscreen layout), so
+    // auto fullscreen waits for it. Keyed by video id so a finish left over
+    // from the previous page does not count.
+    let _navFinishedFor = null;
+    const _currentVideoKey = () => new URLSearchParams(location.search).get('v') || location.pathname;
+    document.addEventListener('yt-navigate-finish', () => {
+        _navFinishedFor = _currentVideoKey();
+        _fsLog('page load finished (yt-navigate-finish) for ' + _navFinishedFor);
+    });
+    document.addEventListener('yt-navigate-start', () => { _navFinishedFor = null; });
 
     document.addEventListener('yt-navigate-start', () => {
         // A navigation right after user input is the user opening a video;
@@ -3550,17 +3562,9 @@
 
     // The listeners themselves live in EARLY PLAY HOLD at the top of the script.
 
-    /**
-     * True when the watch page is ready to take over fullscreen: ytd-watch-flexy
-     * shows the video in the URL and the player has its fullscreen button.
-     * Pages without ytd-watch-flexy (channel trailer) only need the button.
-     */
-    function _watchReady(player) {
-        if (!player || !player.querySelector('.ytp-fullscreen-button')) return false;
-        const flexy = document.querySelector('ytd-watch-flexy');
-        if (!flexy) return true;
-        const v = new URLSearchParams(location.search).get('v');
-        return !v || flexy.getAttribute('video-id') === v;
+    /** True when YouTube has finished loading the current page (see _navFinishedFor). */
+    function _pageLoadFinished() {
+        return _navFinishedFor !== null && _navFinishedFor === _currentVideoKey();
     }
 
     /**
@@ -3582,8 +3586,12 @@
      * play. ycm-fs-done is only set after fullscreen actually happened, so
      * leaving fullscreen and pressing Play again does not re-enter it.
      *
-     * 1. Wait up to FS_READY_WAIT_MS for the watch page to be ready, then click
-     *    anyway (the activation window is ~5 s, so this wait is safe).
+     * 1. Wait until YouTube has finished loading the page (yt-navigate-finish
+     *    for this video). Going fullscreen earlier failed: the page-load
+     *    completion reset the watch layout while the browser stayed
+     *    fullscreen. Wait at most FS_LOAD_WAIT_MS after the user's press
+     *    (activation lasts ~5 s and YouTube requests fullscreen ~0.5 s after
+     *    the click), then click anyway and leave the rest to the guard.
      * 2. YouTube may request fullscreen a while after the click (a single
      *    check at 600 ms saw "not fullscreen" and gave up, then the whole page
      *    went fullscreen). So watch fullscreenchange for FS_ENTER_WATCH_MS.
@@ -3593,7 +3601,8 @@
      *
      * @param {HTMLVideoElement} video  The video element that started playing.
      */
-    const FS_READY_WAIT_MS = 1000;
+    const FS_LOAD_WAIT_MS = 3500;      // measured from the user's Play press
+    const FS_AFTER_LOAD_MS = 300;      // let YouTube finish re-rendering after yt-navigate-finish
     const FS_ENTER_WATCH_MS = 10000;   // how long after the click fullscreen may still start
     const FS_LAYOUT_SETTLE_MS = 400;   // give YouTube's own layout switch time before judging
     function tryAutoFullscreen(video) {
@@ -3603,13 +3612,16 @@
         const player = video.closest('#movie_player, .html5-video-player');
         if (!player) return;
 
-        const t0 = performance.now();
-        const attempt = () => {
-            const ready = _watchReady(player);
-            if (!ready && performance.now() - t0 < FS_READY_WAIT_MS) { setTimeout(attempt, 50); return; }
+        const pressedAt = _lastUserInput;
+        let clicked = false;
+        const attempt = (why) => {
+            if (clicked) return;
+            clicked = true;
+            document.removeEventListener('yt-navigate-finish', onFinish);
+            clearTimeout(deadline);
             const fsBtn = player.querySelector('.ytp-fullscreen-button');
             if (!fsBtn) { _fsLog('auto fullscreen: no fullscreen button'); return; }
-            _fsLog(`auto fullscreen: clicking (page ${ready ? 'ready' : 'NOT ready'} after ${Math.round(performance.now() - t0)}ms)`);
+            _fsLog(`auto fullscreen: clicking (${why}, ${Math.round(performance.now() - pressedAt)}ms after Play)`);
             const clickedAt = performance.now();
             let handled = false;
             const onEnter = () => {
@@ -3636,7 +3648,12 @@
             fsBtn.click();
             onEnter();   // in case fullscreen started synchronously
         };
-        attempt();
+        const onFinish = () => setTimeout(() => attempt('page load finished'), FS_AFTER_LOAD_MS);
+        const deadline = setTimeout(() => attempt('page still loading, waited the maximum'),
+            Math.max(0, FS_LOAD_WAIT_MS - (performance.now() - pressedAt)));
+        if (_pageLoadFinished()) { attempt('page already loaded'); return; }
+        _fsLog('auto fullscreen: waiting for the page to finish loading');
+        document.addEventListener('yt-navigate-finish', onFinish);
     }
 
     /**
@@ -3647,16 +3664,18 @@
      * YouTube's page-load completion (yt-navigate-finish) resets
      * ytd-watch-flexy, so the browser stays fullscreen with the normal page
      * (masthead, playlist, comments) and YouTube's own button cannot switch
-     * back. While fullscreen covers the player, whenever the layout is lost:
-     *   1. re-send fullscreenchange + resize for FS_RESEND_MS so YouTube
-     *      re-applies its fullscreen layout itself;
-     *   2. still lost → set ytd-watch-flexy[fullscreen] ourselves (YouTube's
-     *      own CSS does the layout; we remove it again on exit if YouTube
-     *      does not);
+     * back. Auto fullscreen now waits for the page load to avoid this; the
+     * guard covers the rest (manual fullscreen, slow pages). While fullscreen
+     * covers the player, whenever the layout is lost:
+     *   1. log the state (attributes, player class, sizes) for diagnosis;
+     *   2. keep re-sending fullscreenchange + resize (harmless) in case YouTube
+     *      re-applies its layout (in v1.3.3 real YouTube ignored this);
      *   3. still lost after FS_HINT_MS → stay fullscreen and show a hint
      *      (never exit by ourselves: that looks like a broken feature).
+     * Setting ytd-watch-flexy[fullscreen] ourselves was tried in v1.3.3 and
+     * removed: the outer layout switched but the player did not (black
+     * screen, a clickable layer over everything).
      */
-    const FS_RESEND_MS = 2000;
     const FS_GUARD_EVERY_MS = 500;
     const FS_HINT_MS = 10000;
     let _fsGuard = null;
@@ -3666,22 +3685,41 @@
         return !!el && !el.closest('#movie_player, #c4-player') && !!el.querySelector('#movie_player');
     }
 
+    /** One-line snapshot of the fullscreen-related state, for the log. */
+    function _fsStateDump() {
+        const attrs = (el, skip) => el ? [...el.attributes].map(a => a.name).filter(n => !skip.test(n)).join(' ') : 'none';
+        const rect = el => { if (!el) return 'none'; const r = el.getBoundingClientRect(); return Math.round(r.width) + 'x' + Math.round(r.height); };
+        const fe = document.fullscreenElement, p = document.querySelector('#movie_player');
+        return [
+            'fsEl=' + (fe ? fe.tagName.toLowerCase() + (fe.id ? '#' + fe.id : '') : 'none'),
+            'app=[' + attrs(document.querySelector('ytd-app'), /^(class|style|data-)/) + ']',
+            'flexy=[' + attrs(document.querySelector('ytd-watch-flexy'), /^(class|style|data-|role|video-id|hidden-action)/) + ']',
+            'player.ytp-fullscreen=' + !!(p && p.classList.contains('ytp-fullscreen')),
+            'player=' + rect(p), 'video=' + rect(p && p.querySelector('video')),
+            'vp=' + innerWidth + 'x' + innerHeight
+        ].join(' ');
+    }
+
     function _startFsGuard() {
         if (_fsGuard || !_fsCoversPlayer()) return;
         const pageEvents = ['yt-navigate-finish', 'yt-page-data-updated', 'yt-player-updated'];
-        const st = { brokenSince: 0, forcedOn: null, hinted: false, resending: false };
+        const st = { brokenSince: 0, hinted: false, resending: false };
         const check = why => {
             if (st.resending) return;                         // our own synthetic events
             if (!document.fullscreenElement) { stop(); return; }
             if (_fsLayoutOk()) {
-                if (st.brokenSince) _fsLog(`fs guard: video layout back after ${Math.round(performance.now() - st.brokenSince)}ms (${st.forcedOn ? 'attribute set by us' : 'YouTube re-applied it'})`);
+                if (st.brokenSince) _fsLog(`fs guard: video layout back after ${Math.round(performance.now() - st.brokenSince)}ms`);
                 st.brokenSince = 0;
                 return;
             }
             const now = performance.now();
-            if (!st.brokenSince) { st.brokenSince = now; _fsLog(`fs guard: layout lost while fullscreen (${why}), re-sending fullscreenchange`); }
+            if (!st.brokenSince) {
+                st.brokenSince = now;
+                _fsLog(`fs guard: layout lost while fullscreen (${why}), re-sending fullscreenchange`);
+                _fsLog('fs guard: state ' + _fsStateDump());
+            }
             const lost = now - st.brokenSince;
-            if (lost < FS_RESEND_MS) {
+            if (lost < FS_HINT_MS) {
                 st.resending = true;
                 try {
                     document.dispatchEvent(new Event('fullscreenchange'));
@@ -3690,15 +3728,7 @@
                 } finally { st.resending = false; }
                 return;
             }
-            const flexy = document.querySelector('ytd-watch-flexy');
-            if (flexy && !flexy.hasAttribute('fullscreen')) {
-                flexy.setAttribute('fullscreen', '');
-                st.forcedOn = flexy;
-                window.dispatchEvent(new Event('resize'));
-                _fsLog('fs guard: set ytd-watch-flexy[fullscreen] ourselves');
-                return;
-            }
-            if (lost > FS_HINT_MS && !st.hinted) {
+            if (!st.hinted) {
                 st.hinted = true;
                 _fsLog('fs guard: layout could not be restored, showing hint');
                 _showFsHint(LANG.fsLayoutHint);
@@ -3717,14 +3747,6 @@
             pageEvents.forEach(t => document.removeEventListener(t, onEvent));
             document.removeEventListener('fullscreenchange', onEvent);
             _fsGuard = null;
-            const forced = st.forcedOn;
-            if (forced) setTimeout(() => {       // let YouTube clean up first
-                if (!document.fullscreenElement && forced.hasAttribute('fullscreen')) {
-                    forced.removeAttribute('fullscreen');
-                    window.dispatchEvent(new Event('resize'));
-                    _fsLog('fs guard: removed the fullscreen attribute we had set');
-                }
-            }, 300);
             _fsLog('fs guard: stopped (left fullscreen)');
         };
         _fsGuard = { stop };
