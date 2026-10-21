@@ -1,13 +1,14 @@
 // ==UserScript==
 // @name         YouTube Channel Memory
 // @namespace    YouTubeChannelMemory
-// @version      1.3.0
+// @version      1.3.1
 // @description  Per-channel playback speed and subtitle preferences, with audio boost, real-time duration display, start-paused, fullscreen on play / auto-exit near the end, bottom progress bar, hide live chat, and custom language editor.
 // @author       bgtsai
 // @match        https://www.youtube.com/*
 // @grant        GM.setValue
 // @grant        GM.getValue
 // @grant        GM.deleteValue
+// @grant        GM_getValue
 // @grant        GM_registerMenuCommand
 // @run-at       document-start
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=youtube.com
@@ -97,6 +98,66 @@
 
 (async () => {
     // ─────────────────────────────────────────────────────────────────────────
+    // EARLY PLAY HOLD (must stay above every `await`)
+    //
+    // The settings below are read with ~20 sequential `await GM.getValue` calls.
+    // Registering the play listener after them let YouTube start playback first;
+    // the video then played for ~0.5–1 s until a later play() call was caught.
+    // So the capture listener is attached here, synchronously, and START_PAUSED
+    // is read with the synchronous GM_getValue (same storage as GM.setValue).
+    // Everything that needs the full settings waits for _ycmReady.
+    // ─────────────────────────────────────────────────────────────────────────
+    const _ycmT0 = performance.now();
+    /** Timeline log for start-paused / auto fullscreen diagnostics. */
+    const _fsLog = msg => console.log(`YSC fs: +${Math.round(performance.now() - _ycmT0)}ms ${msg}`);
+    let _ycmReady = false;                       // full settings loaded
+    const _earlyStartPaused = (typeof GM_getValue === 'function') ? !!GM_getValue('_YSC-START_PAUSED', false) : null;
+    _fsLog(`play hold listener attached (start paused = ${_earlyStartPaused === null ? 'unknown' : _earlyStartPaused})`);
+
+    /** Timestamp (performance.now) of the most recent trusted pointer/key input. */
+    let _lastUserInput = -Infinity;
+    for (const type of ['pointerdown', 'keydown']) {
+        document.addEventListener(type, e => { if (e.isTrusted) _lastUserInput = performance.now(); }, true);
+    }
+
+    /** Hold state: while armed, playback that the user did not start is paused. */
+    const _playHold = { armed: true, since: performance.now() };
+
+    document.addEventListener('yt-navigate-start', () => {
+        // A navigation right after user input is the user opening a video;
+        // one without input is a playlist / autoplay-next continuation.
+        const byUser = performance.now() - _lastUserInput < 3000;
+        _playHold.armed = byUser;
+        _playHold.since = performance.now();
+        _fsLog('yt-navigate-start, play hold ' + (byUser ? 'armed' : 'released (autoplay)'));
+    });
+
+    /** True if the user pressed something after the hold was armed, within `ms`. */
+    function _userStartedPlayback(ms = 1500) {
+        return _lastUserInput > _playHold.since && performance.now() - _lastUserInput < ms;
+    }
+
+    /** START_PAUSED: the loaded setting once available, else the early synchronous read. */
+    function _startPausedOn() {
+        return _ycmReady ? !!window['START_PAUSED'] : !!_earlyStartPaused;
+    }
+
+    document.addEventListener('play', e => {
+        const video = e.target;
+        if (!(video instanceof HTMLVideoElement) || !video.closest('#movie_player, #c4-player')) return;
+
+        const byUser = _userStartedPlayback();
+        if (_startPausedOn() && _playHold.armed && !byUser) {
+            video.pause();
+            _fsLog(`start paused: held playback at ${video.currentTime.toFixed(2)}s`);
+            return;
+        }
+        _fsLog(`play (${byUser ? 'by user' : 'not by user'}) at ${video.currentTime.toFixed(2)}s`);
+        if (byUser) _playHold.armed = false;
+        if (_ycmReady) tryAutoFullscreen(video);
+    }, true);
+
+    // ─────────────────────────────────────────────────────────────────────────
     // LANGUAGE BLOCK
     // To add a new language, copy this object, replace the string values, and
     // set it as the active LANG. No other code changes are needed.
@@ -135,6 +196,7 @@
             labelColorNormal:        'Other Speeds',
             labelColorSub:           'Color of text buttons',
             cpDragHint:              'Drag to move',
+            fsLayoutHint:            'YouTube did not switch to video fullscreen — press Esc to leave',
             labelStartPaused:        'Start New Videos Paused',
             labelStartPausedSub:     'Playlists and autoplay-next keep playing',
             labelFsProgress:         'Bottom Progress Bar',
@@ -261,6 +323,7 @@
             labelColorNormal:        '其他倍速',
             labelColorSub:           '文字按鈕的顏色',
             cpDragHint:              '拖曳以移動',
+            fsLayoutHint:            'YouTube 沒有切換成影片全螢幕，按 Esc 離開',
             labelStartPaused:        '開啟新影片時先暫停',
             labelStartPausedSub:     '播放清單與自動播放下一部不受影響',
             labelFsProgress:         '底部細進度條',
@@ -687,6 +750,8 @@
     }
     window['USE_CUSTOM_LANG'] = window['UI_LANG'] === 'custom';
     LANG = buildActiveLang();
+    _ycmReady = true;   // full settings + LANG available to the early play hold
+    _fsLog('settings loaded');
 
     // ─────────────────────────────────────────────────────────────────────────
     // GM_registerMenuCommand POLYFILL
@@ -3441,42 +3506,32 @@
     // setup (initPlayers) has run.
     // ─────────────────────────────────────────────────────────────────────────
 
-    /** Timestamp (performance.now) of the most recent trusted pointer/key input. */
-    let _lastUserInput = -Infinity;
-    for (const type of ['pointerdown', 'keydown']) {
-        document.addEventListener(type, e => { if (e.isTrusted) _lastUserInput = performance.now(); }, true);
+    // The listeners themselves live in EARLY PLAY HOLD at the top of the script.
+
+    /**
+     * True when the watch page is ready to take over fullscreen: ytd-watch-flexy
+     * shows the video in the URL and the player has its fullscreen button.
+     * Pages without ytd-watch-flexy (channel trailer) only need the button.
+     */
+    function _watchReady(player) {
+        if (!player || !player.querySelector('.ytp-fullscreen-button')) return false;
+        const flexy = document.querySelector('ytd-watch-flexy');
+        if (!flexy) return true;
+        const v = new URLSearchParams(location.search).get('v');
+        return !v || flexy.getAttribute('video-id') === v;
     }
 
-    /** Hold state: while armed, playback that the user did not start is paused. */
-    const _playHold = { armed: true, since: performance.now() };
-
-    document.addEventListener('yt-navigate-start', () => {
-        // A navigation right after user input is the user opening a video;
-        // one without input is a playlist / autoplay-next continuation.
-        const byUser = performance.now() - _lastUserInput < 3000;
-        _playHold.armed = byUser;
-        _playHold.since = performance.now();
-        console.log('YSC: yt-navigate-start, play hold ' + (byUser ? 'armed' : 'released (autoplay)'));
-    });
-
-    /** True if the user pressed something after the hold was armed, within `ms`. */
-    function _userStartedPlayback(ms = 1500) {
-        return _lastUserInput > _playHold.since && performance.now() - _lastUserInput < ms;
+    /**
+     * True when fullscreen shows the video, not the whole page. YouTube puts
+     * ytd-app into fullscreen and switches the layout through
+     * ytd-watch-flexy[fullscreen]; without that attribute the whole page
+     * (playlist, comments) is shown fullscreen.
+     */
+    function _fsLayoutOk() {
+        if (!document.fullscreenElement) return false;
+        const flexy = document.querySelector('ytd-watch-flexy');
+        return !flexy || flexy.hasAttribute('fullscreen') || !!document.fullscreenElement.closest('#movie_player, #c4-player');
     }
-
-    document.addEventListener('play', e => {
-        const video = e.target;
-        if (!(video instanceof HTMLVideoElement) || !video.closest('#movie_player, #c4-player')) return;
-
-        const byUser = _userStartedPlayback();
-        if (window['START_PAUSED'] && _playHold.armed && !byUser) {
-            console.log('YSC: Start paused — holding playback until the user presses Play.');
-            video.pause();
-            return;
-        }
-        if (byUser) _playHold.armed = false;
-        tryAutoFullscreen(video);
-    }, true);
 
     /**
      * Enters fullscreen by clicking YouTube's own fullscreen button.
@@ -3485,21 +3540,93 @@
      * play. ycm-fs-done is only set after fullscreen actually happened, so
      * leaving fullscreen and pressing Play again does not re-enter it.
      *
+     * 1. Wait up to FS_READY_WAIT_MS for the watch page to be ready, then click
+     *    anyway (the activation window is ~5 s, so this wait is safe).
+     * 2. If the browser went fullscreen but YouTube did not switch the layout
+     *    (it missed fullscreenchange while still loading), re-send
+     *    fullscreenchange + resize until it does — see _repairFsLayout.
+     *
      * @param {HTMLVideoElement} video  The video element that started playing.
      */
+    const FS_READY_WAIT_MS = 1000;
+    const FS_CHECK_DELAY_MS = 600;
     function tryAutoFullscreen(video) {
         if (!window['FULLSCREEN_ON_START']) return;
         if (video.getAttribute('ycm-fs-done')) return;
         if (document.fullscreenElement) { video.setAttribute('ycm-fs-done', 'true'); return; }
+        const player = video.closest('#movie_player, .html5-video-player');
+        if (!player) return;
 
-        const fsBtn = $(video).closest('#movie_player, .html5-video-player').find('.ytp-fullscreen-button');
-        if (!fsBtn.length) return;
-        console.log('YSC: Attempting auto fullscreen.');
-        fsBtn[0].click();
-        setTimeout(() => {
-            if (document.fullscreenElement) video.setAttribute('ycm-fs-done', 'true');
-            else console.log('YSC: Fullscreen was not granted (no recent user input).');
-        }, 500);
+        const t0 = performance.now();
+        const attempt = () => {
+            const ready = _watchReady(player);
+            if (!ready && performance.now() - t0 < FS_READY_WAIT_MS) { setTimeout(attempt, 50); return; }
+            const fsBtn = player.querySelector('.ytp-fullscreen-button');
+            if (!fsBtn) { _fsLog('auto fullscreen: no fullscreen button'); return; }
+            _fsLog(`auto fullscreen: clicking (page ${ready ? 'ready' : 'NOT ready'} after ${Math.round(performance.now() - t0)}ms)`);
+            fsBtn.click();
+            setTimeout(() => {
+                if (!document.fullscreenElement) { _fsLog('auto fullscreen: not granted (no recent user input)'); return; }
+                video.setAttribute('ycm-fs-done', 'true');
+                if (_fsLayoutOk()) _fsLog('auto fullscreen: video fullscreen OK');
+                else _repairFsLayout();
+            }, FS_CHECK_DELAY_MS);
+        };
+        attempt();
+    }
+
+    /**
+     * Fullscreen is on but YouTube still shows the whole page. Re-send the
+     * events YouTube listens to whenever the page becomes ready (its own
+     * page-data / navigation events) and every FS_REPAIR_EVERY_MS, for up to
+     * FS_REPAIR_MAX_MS. Re-sending is harmless and does not leave fullscreen.
+     * If it never switches, stay in fullscreen and tell the user (exiting by
+     * ourselves would look like the feature is broken).
+     */
+    const FS_REPAIR_EVERY_MS = 500;
+    const FS_REPAIR_MAX_MS = 10000;
+    function _repairFsLayout() {
+        _fsLog('auto fullscreen: whole page went fullscreen, repairing layout');
+        const t0 = performance.now();
+        let done = false;
+        const pageEvents = ['yt-page-data-updated', 'yt-navigate-finish', 'yt-player-updated'];
+        const finish = msg => {
+            if (done) return;
+            done = true;
+            clearInterval(timer);
+            pageEvents.forEach(t => document.removeEventListener(t, poke));
+            _fsLog(msg);
+        };
+        const poke = () => {
+            if (done) return;
+            if (!document.fullscreenElement) { finish('auto fullscreen: repair stopped (fullscreen left)'); return; }
+            if (_fsLayoutOk()) { finish(`auto fullscreen: layout switched after ${Math.round(performance.now() - t0)}ms`); return; }
+            if (performance.now() - t0 > FS_REPAIR_MAX_MS) {
+                finish('auto fullscreen: layout never switched, showing hint');
+                _showFsHint(LANG.fsLayoutHint);
+                return;
+            }
+            document.dispatchEvent(new Event('fullscreenchange'));
+            document.dispatchEvent(new Event('webkitfullscreenchange'));
+            window.dispatchEvent(new Event('resize'));
+        };
+        const timer = setInterval(poke, FS_REPAIR_EVERY_MS);
+        pageEvents.forEach(t => document.addEventListener(t, poke));
+        poke();
+    }
+
+    /** Short message at the top of the screen; placed inside the fullscreen element so it is visible. */
+    function _showFsHint(text) {
+        const host = document.fullscreenElement || document.body;
+        const el = document.createElement('div');
+        el.textContent = text;
+        el.style.cssText = 'position:fixed;top:24px;left:50%;transform:translateX(-50%);z-index:2147483647;'
+            + 'padding:10px 18px;border-radius:8px;background:rgba(20,20,20,.92);color:#fff;'
+            + 'font:500 16px/1.4 -apple-system,"Helvetica Neue",Arial,sans-serif;pointer-events:none;'
+            + 'transition:opacity .3s;';
+        host.appendChild(el);
+        setTimeout(() => { el.style.opacity = '0'; }, 6000);
+        setTimeout(() => el.remove(), 6400);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
