@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Channel Memory
 // @namespace    YouTubeChannelMemory
-// @version      1.3.1
+// @version      1.3.2
 // @description  Per-channel playback speed and subtitle preferences, with audio boost, real-time duration display, start-paused, fullscreen on play / auto-exit near the end, bottom progress bar, hide live chat, and custom language editor.
 // @author       bgtsai
 // @match        https://www.youtube.com/*
@@ -9,6 +9,7 @@
 // @grant        GM.getValue
 // @grant        GM.deleteValue
 // @grant        GM_getValue
+// @grant        unsafeWindow
 // @grant        GM_registerMenuCommand
 // @run-at       document-start
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=youtube.com
@@ -142,14 +143,55 @@
         return _ycmReady ? !!window['START_PAUSED'] : !!_earlyStartPaused;
     }
 
+    /** True if playback of `el` should be held: main player, Start Paused on, no recent user input. */
+    function _shouldHold(el) {
+        return !!el && el.tagName === 'VIDEO' && !!el.closest('#movie_player, #c4-player')
+            && _startPausedOn() && _playHold.armed && !_userStartedPlayback();
+    }
+
+    // ── Source-level block ─────────────────────────────────────────────────
+    // Pausing in the 'play' event is too late by a few milliseconds: audio has
+    // already started, so a short sound leaks. Instead, replace play() in the
+    // PAGE's world (the sandbox cannot see YouTube's own call) and, while the
+    // hold is armed, reject it with NotAllowedError — exactly what the browser
+    // returns when its autoplay policy blocks a video. YouTube already handles
+    // that case and shows the paused state with a play button, so its UI stays
+    // consistent. A real click/key press releases the hold and the original
+    // play() runs. Firefox needs exportFunction to expose the hook to the page.
+    // If the hook cannot be installed, the 'play' listener below still pauses.
+    const _pageWin = (typeof unsafeWindow !== 'undefined') ? unsafeWindow : window;
+    let _playHook = 'not installed';
+    try {
+        const proto = _pageWin.HTMLMediaElement.prototype;
+        const origPlay = proto.play;
+        const hook = function () {
+            if (_shouldHold(this)) {
+                _fsLog('start paused: blocked play() at the source');
+                return _pageWin.Promise.reject(new _pageWin.DOMException('Blocked by YouTube Channel Memory (Start New Videos Paused)', 'NotAllowedError'));
+            }
+            return origPlay.apply(this, arguments);
+        };
+        if (typeof exportFunction === 'function') {
+            exportFunction(hook, proto, { defineAs: 'play' });
+            _playHook = 'installed (exportFunction)';
+        } else {
+            proto.play = hook;
+            _playHook = 'installed';
+        }
+    } catch (e) {
+        _playHook = 'failed: ' + e.message;
+    }
+    _fsLog('play() hook ' + _playHook);
+
     document.addEventListener('play', e => {
         const video = e.target;
         if (!(video instanceof HTMLVideoElement) || !video.closest('#movie_player, #c4-player')) return;
 
         const byUser = _userStartedPlayback();
         if (_startPausedOn() && _playHold.armed && !byUser) {
+            // Only reached when play() got past the source-level hook.
             video.pause();
-            _fsLog(`start paused: held playback at ${video.currentTime.toFixed(2)}s`);
+            _fsLog(`start paused: play() reached the browser (hook ${_playHook}); paused at ${video.currentTime.toFixed(2)}s`);
             return;
         }
         _fsLog(`play (${byUser ? 'by user' : 'not by user'}) at ${video.currentTime.toFixed(2)}s`);
@@ -3542,14 +3584,18 @@
      *
      * 1. Wait up to FS_READY_WAIT_MS for the watch page to be ready, then click
      *    anyway (the activation window is ~5 s, so this wait is safe).
-     * 2. If the browser went fullscreen but YouTube did not switch the layout
+     * 2. YouTube may request fullscreen a while after the click (a single
+     *    check at 600 ms saw "not fullscreen" and gave up, then the whole page
+     *    went fullscreen). So watch fullscreenchange for FS_ENTER_WATCH_MS.
+     * 3. If the browser went fullscreen but YouTube did not switch the layout
      *    (it missed fullscreenchange while still loading), re-send
      *    fullscreenchange + resize until it does — see _repairFsLayout.
      *
      * @param {HTMLVideoElement} video  The video element that started playing.
      */
     const FS_READY_WAIT_MS = 1000;
-    const FS_CHECK_DELAY_MS = 600;
+    const FS_ENTER_WATCH_MS = 10000;   // how long after the click fullscreen may still start
+    const FS_LAYOUT_SETTLE_MS = 400;   // give YouTube's own layout switch time before judging
     function tryAutoFullscreen(video) {
         if (!window['FULLSCREEN_ON_START']) return;
         if (video.getAttribute('ycm-fs-done')) return;
@@ -3564,13 +3610,30 @@
             const fsBtn = player.querySelector('.ytp-fullscreen-button');
             if (!fsBtn) { _fsLog('auto fullscreen: no fullscreen button'); return; }
             _fsLog(`auto fullscreen: clicking (page ${ready ? 'ready' : 'NOT ready'} after ${Math.round(performance.now() - t0)}ms)`);
-            fsBtn.click();
-            setTimeout(() => {
-                if (!document.fullscreenElement) { _fsLog('auto fullscreen: not granted (no recent user input)'); return; }
+            const clickedAt = performance.now();
+            let handled = false;
+            const onEnter = () => {
+                if (handled || !document.fullscreenElement) return;
+                handled = true;
+                cleanup();
                 video.setAttribute('ycm-fs-done', 'true');
-                if (_fsLayoutOk()) _fsLog('auto fullscreen: video fullscreen OK');
-                else _repairFsLayout();
-            }, FS_CHECK_DELAY_MS);
+                _fsLog(`auto fullscreen: entered ${Math.round(performance.now() - clickedAt)}ms after click`);
+                setTimeout(() => {
+                    if (!document.fullscreenElement) return;
+                    if (_fsLayoutOk()) _fsLog('auto fullscreen: video fullscreen OK');
+                    else _repairFsLayout();
+                }, FS_LAYOUT_SETTLE_MS);
+            };
+            const giveUp = setTimeout(() => {
+                if (handled) return;
+                handled = true;
+                cleanup();
+                _fsLog('auto fullscreen: not granted within 10 s (no recent user input?)');
+            }, FS_ENTER_WATCH_MS);
+            const cleanup = () => { clearTimeout(giveUp); document.removeEventListener('fullscreenchange', onEnter); };
+            document.addEventListener('fullscreenchange', onEnter);
+            fsBtn.click();
+            onEnter();   // in case fullscreen started synchronously
         };
         attempt();
     }
