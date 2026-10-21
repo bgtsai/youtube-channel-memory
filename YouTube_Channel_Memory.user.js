@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Channel Memory
 // @namespace    YouTubeChannelMemory
-// @version      1.3.2
+// @version      1.3.3
 // @description  Per-channel playback speed and subtitle preferences, with audio boost, real-time duration display, start-paused, fullscreen on play / auto-exit near the end, bottom progress bar, hide live chat, and custom language editor.
 // @author       bgtsai
 // @match        https://www.youtube.com/*
@@ -3589,7 +3589,7 @@
      *    went fullscreen). So watch fullscreenchange for FS_ENTER_WATCH_MS.
      * 3. If the browser went fullscreen but YouTube did not switch the layout
      *    (it missed fullscreenchange while still loading), re-send
-     *    fullscreenchange + resize until it does — see _repairFsLayout.
+     *    fullscreenchange + resize until it does — see the FULLSCREEN GUARD.
      *
      * @param {HTMLVideoElement} video  The video element that started playing.
      */
@@ -3620,8 +3620,9 @@
                 _fsLog(`auto fullscreen: entered ${Math.round(performance.now() - clickedAt)}ms after click`);
                 setTimeout(() => {
                     if (!document.fullscreenElement) return;
-                    if (_fsLayoutOk()) _fsLog('auto fullscreen: video fullscreen OK');
-                    else _repairFsLayout();
+                    // Either way the fullscreen guard keeps watching the layout.
+                    _fsLog(_fsLayoutOk() ? 'auto fullscreen: video fullscreen OK'
+                                         : 'auto fullscreen: whole page went fullscreen (guard repairing)');
                 }, FS_LAYOUT_SETTLE_MS);
             };
             const giveUp = setTimeout(() => {
@@ -3639,44 +3640,98 @@
     }
 
     /**
-     * Fullscreen is on but YouTube still shows the whole page. Re-send the
-     * events YouTube listens to whenever the page becomes ready (its own
-     * page-data / navigation events) and every FS_REPAIR_EVERY_MS, for up to
-     * FS_REPAIR_MAX_MS. Re-sending is harmless and does not leave fullscreen.
-     * If it never switches, stay in fullscreen and tell the user (exiting by
-     * ourselves would look like the feature is broken).
+     * FULLSCREEN GUARD — keeps the video layout for as long as fullscreen lasts.
+     *
+     * Checking once after entering was not enough: when Play is pressed while
+     * the watch page is still loading, fullscreen starts correctly and then
+     * YouTube's page-load completion (yt-navigate-finish) resets
+     * ytd-watch-flexy, so the browser stays fullscreen with the normal page
+     * (masthead, playlist, comments) and YouTube's own button cannot switch
+     * back. While fullscreen covers the player, whenever the layout is lost:
+     *   1. re-send fullscreenchange + resize for FS_RESEND_MS so YouTube
+     *      re-applies its fullscreen layout itself;
+     *   2. still lost → set ytd-watch-flexy[fullscreen] ourselves (YouTube's
+     *      own CSS does the layout; we remove it again on exit if YouTube
+     *      does not);
+     *   3. still lost after FS_HINT_MS → stay fullscreen and show a hint
+     *      (never exit by ourselves: that looks like a broken feature).
      */
-    const FS_REPAIR_EVERY_MS = 500;
-    const FS_REPAIR_MAX_MS = 10000;
-    function _repairFsLayout() {
-        _fsLog('auto fullscreen: whole page went fullscreen, repairing layout');
-        const t0 = performance.now();
-        let done = false;
-        const pageEvents = ['yt-page-data-updated', 'yt-navigate-finish', 'yt-player-updated'];
-        const finish = msg => {
-            if (done) return;
-            done = true;
-            clearInterval(timer);
-            pageEvents.forEach(t => document.removeEventListener(t, poke));
-            _fsLog(msg);
-        };
-        const poke = () => {
-            if (done) return;
-            if (!document.fullscreenElement) { finish('auto fullscreen: repair stopped (fullscreen left)'); return; }
-            if (_fsLayoutOk()) { finish(`auto fullscreen: layout switched after ${Math.round(performance.now() - t0)}ms`); return; }
-            if (performance.now() - t0 > FS_REPAIR_MAX_MS) {
-                finish('auto fullscreen: layout never switched, showing hint');
-                _showFsHint(LANG.fsLayoutHint);
+    const FS_RESEND_MS = 2000;
+    const FS_GUARD_EVERY_MS = 500;
+    const FS_HINT_MS = 10000;
+    let _fsGuard = null;
+
+    function _fsCoversPlayer() {
+        const el = document.fullscreenElement;
+        return !!el && !el.closest('#movie_player, #c4-player') && !!el.querySelector('#movie_player');
+    }
+
+    function _startFsGuard() {
+        if (_fsGuard || !_fsCoversPlayer()) return;
+        const pageEvents = ['yt-navigate-finish', 'yt-page-data-updated', 'yt-player-updated'];
+        const st = { brokenSince: 0, forcedOn: null, hinted: false, resending: false };
+        const check = why => {
+            if (st.resending) return;                         // our own synthetic events
+            if (!document.fullscreenElement) { stop(); return; }
+            if (_fsLayoutOk()) {
+                if (st.brokenSince) _fsLog(`fs guard: video layout back after ${Math.round(performance.now() - st.brokenSince)}ms (${st.forcedOn ? 'attribute set by us' : 'YouTube re-applied it'})`);
+                st.brokenSince = 0;
                 return;
             }
-            document.dispatchEvent(new Event('fullscreenchange'));
-            document.dispatchEvent(new Event('webkitfullscreenchange'));
-            window.dispatchEvent(new Event('resize'));
+            const now = performance.now();
+            if (!st.brokenSince) { st.brokenSince = now; _fsLog(`fs guard: layout lost while fullscreen (${why}), re-sending fullscreenchange`); }
+            const lost = now - st.brokenSince;
+            if (lost < FS_RESEND_MS) {
+                st.resending = true;
+                try {
+                    document.dispatchEvent(new Event('fullscreenchange'));
+                    document.dispatchEvent(new Event('webkitfullscreenchange'));
+                    window.dispatchEvent(new Event('resize'));
+                } finally { st.resending = false; }
+                return;
+            }
+            const flexy = document.querySelector('ytd-watch-flexy');
+            if (flexy && !flexy.hasAttribute('fullscreen')) {
+                flexy.setAttribute('fullscreen', '');
+                st.forcedOn = flexy;
+                window.dispatchEvent(new Event('resize'));
+                _fsLog('fs guard: set ytd-watch-flexy[fullscreen] ourselves');
+                return;
+            }
+            if (lost > FS_HINT_MS && !st.hinted) {
+                st.hinted = true;
+                _fsLog('fs guard: layout could not be restored, showing hint');
+                _showFsHint(LANG.fsLayoutHint);
+            }
         };
-        const timer = setInterval(poke, FS_REPAIR_EVERY_MS);
-        pageEvents.forEach(t => document.addEventListener(t, poke));
-        poke();
+        const onEvent = e => check(e.type);
+        const mo = new MutationObserver(() => check('ytd-watch-flexy changed'));
+        const app = document.querySelector('ytd-app') || document.documentElement;
+        mo.observe(app, { subtree: true, attributes: true, attributeFilter: ['fullscreen'] });
+        pageEvents.forEach(t => document.addEventListener(t, onEvent));
+        document.addEventListener('fullscreenchange', onEvent);
+        const timer = setInterval(() => check('timer'), FS_GUARD_EVERY_MS);
+        const stop = () => {
+            clearInterval(timer);
+            mo.disconnect();
+            pageEvents.forEach(t => document.removeEventListener(t, onEvent));
+            document.removeEventListener('fullscreenchange', onEvent);
+            _fsGuard = null;
+            const forced = st.forcedOn;
+            if (forced) setTimeout(() => {       // let YouTube clean up first
+                if (!document.fullscreenElement && forced.hasAttribute('fullscreen')) {
+                    forced.removeAttribute('fullscreen');
+                    window.dispatchEvent(new Event('resize'));
+                    _fsLog('fs guard: removed the fullscreen attribute we had set');
+                }
+            }, 300);
+            _fsLog('fs guard: stopped (left fullscreen)');
+        };
+        _fsGuard = { stop };
+        _fsLog('fs guard: watching layout');
+        check('entered');
     }
+    document.addEventListener('fullscreenchange', () => { if (document.fullscreenElement) _startFsGuard(); });
 
     /** Short message at the top of the screen; placed inside the fullscreen element so it is visible. */
     function _showFsHint(text) {

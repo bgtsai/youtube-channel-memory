@@ -28,7 +28,8 @@ PAGE = """<!doctype html><html><head><meta charset=utf-8></head><body style="mar
 </ytd-watch-flexy></ytd-app>
 <script>
 const flexy = document.querySelector('ytd-watch-flexy'), v = document.querySelector('video');
-const Q = new URLSearchParams(location.search), LATE = +(Q.get('late') || 0), FSDELAY = +(Q.get('fsdelay') || 0);
+const Q = new URLSearchParams(location.search), LATE = +(Q.get('late') || 0), FSDELAY = +(Q.get('fsdelay') || 0),
+      RESET = +(Q.get('reset') || 0), DROP = Q.get('drop') === '1';
 window.__rejections = [];
 const ytPlay = () => v.play().catch(e => window.__rejections.push(e.name));   // YouTube records why play() failed
 // YouTube's button may request fullscreen a while after the click
@@ -39,6 +40,12 @@ window.__ytPlay = ytPlay;
 setTimeout(() => flexy.setAttribute('video-id', 'abc'), LATE ? LATE : 0);     // page data arrives
 const layout = () => flexy.toggleAttribute('fullscreen', !!document.fullscreenElement);
 setTimeout(() => document.addEventListener('fullscreenchange', layout), LATE); // handler attached late
+// page load completes after fullscreen: YouTube re-initialises the watch page and drops [fullscreen]
+if (RESET) setTimeout(() => {
+  if (DROP) document.removeEventListener('fullscreenchange', layout);           // and does not listen again
+  flexy.removeAttribute('fullscreen'); document.dispatchEvent(new Event('yt-navigate-finish'));
+}, RESET);
+window.__exitFs = () => document.exitFullscreen();
 </script></body></html>"""
 
 class H(http.server.SimpleHTTPRequestHandler):
@@ -63,16 +70,18 @@ def check(name, ok, detail=''):
     print(('PASS ' if ok else 'FAIL ') + name + ('  ' + str(detail) if detail != '' else ''))
     if not ok: fails.append(name)
 
-async def run(b, port, store, late=0, click=False, wait=3000, fsdelay=0):
+async def run(b, port, store, late=0, click=False, wait=3000, fsdelay=0, reset=0, drop=False, exit_after=False):
     ctx = await b.new_context(viewport={'width': 1280, 'height': 720})
     await ctx.add_init_script(shim(store))
     pg = await ctx.new_page()
-    await pg.goto(f'http://127.0.0.1:{port}/watch?v=abc&late={late}&fsdelay={fsdelay}')
+    await pg.goto(f'http://127.0.0.1:{port}/watch?v=abc&late={late}&fsdelay={fsdelay}&reset={reset}&drop={1 if drop else 0}')
     await pg.wait_for_timeout(1500)
     if click:
         await pg.mouse.click(300, 150)                      # real user input
         await pg.evaluate("window.__ytPlay()")
     await pg.wait_for_timeout(wait)
+    if exit_after:
+        await pg.evaluate("window.__exitFs()"); await pg.wait_for_timeout(800)
     r = await pg.evaluate("""() => ({ paused: document.querySelector('video').paused, t: document.querySelector('video').currentTime,
         fs: document.fullscreenElement ? document.fullscreenElement.tagName : null, layout: document.querySelector('ytd-watch-flexy').hasAttribute('fullscreen'),
         rej: window.__rejections, logs: window.__logs.filter(l => l.startsWith('YSC fs') || l.startsWith('SCRIPT')) })""")
@@ -98,13 +107,20 @@ async def main():
         check('user press plays normally (hold released)', not r['paused'] and r['t'] > 0.5, r['t'])
         r = await run(b, port, {'_YSC-START_PAUSED': True, '_YSC-FULLSCREEN_ON_START': True}, late=5000, click=True, wait=8000, fsdelay=1500)
         al = [l for l in r['logs'] if 'auto' in l]
-        check('fullscreen requested 1.5 s after click (like YouTube): watched, entered, layout repaired', r['fs'] and r['layout'] and any('entered' in l for l in al) and any('layout switched' in l for l in al) and not any('not granted' in l for l in al), al)
+        check('fullscreen requested 1.5 s after click (like YouTube): watched, entered, layout repaired', r['fs'] and r['layout'] and any('entered' in l for l in al) and any('YouTube re-applied' in l for l in r['logs']) and not any('not granted' in l for l in al), al)
         r = await run(b, port, {'_YSC-START_PAUSED': True, '_YSC-FULLSCREEN_ON_START': True}, late=4000, click=True, wait=6000)
         al = [l for l in r['logs'] if 'auto' in l]
-        check('fullscreen, YouTube late: whole page first, then layout repaired, still fullscreen', r['fs'] and r['layout'] and any('whole page' in l for l in al) and any('layout switched' in l for l in al), al)
-        r = await run(b, port, {'_YSC-START_PAUSED': True, '_YSC-FULLSCREEN_ON_START': True}, late=60000, click=True, wait=12000)
-        al = [l for l in r['logs'] if 'auto' in l]
-        check('fullscreen, never repaired: stays fullscreen and shows hint (no auto exit)', r['fs'] and any('showing hint' in l for l in al), al)
+        check('fullscreen, YouTube late: whole page first, then layout repaired, still fullscreen', r['fs'] and r['layout'] and any('whole page' in l for l in al) and any('YouTube re-applied' in l for l in r['logs']), r['logs'][-4:])
+        r = await run(b, port, {'_YSC-START_PAUSED': True, '_YSC-FULLSCREEN_ON_START': True}, late=60000, click=True, wait=5000)
+        g = [l for l in r['logs'] if 'guard' in l]
+        check('YouTube never re-applies: we set the attribute after 2 s, still fullscreen', r['fs'] and r['layout'] and any('set ytd-watch-flexy[fullscreen] ourselves' in l for l in g), g)
+        # the reported case: fullscreen OK, then page load completes and resets the layout
+        r = await run(b, port, {'_YSC-START_PAUSED': True, '_YSC-FULLSCREEN_ON_START': True}, click=True, wait=4000, reset=2500)
+        g = [l for l in r['logs'] if 'guard' in l]
+        check('layout reset after fullscreen OK (yt-navigate-finish): restored by re-sending', r['fs'] and r['layout'] and any('layout lost' in l for l in g) and any('YouTube re-applied' in l for l in g), g)
+        r = await run(b, port, {'_YSC-START_PAUSED': True, '_YSC-FULLSCREEN_ON_START': True}, click=True, wait=5000, reset=2500, drop=True, exit_after=True)
+        g = [l for l in r['logs'] if 'guard' in l]
+        check('layout reset and YouTube stops listening: we set it, and remove it after exit', not r['fs'] and not r['layout'] and any('ourselves' in l for l in g) and any('removed the fullscreen attribute' in l for l in g), g)
         check('no script errors', not any(l.startswith('SCRIPT') for l in r['logs']))
         await b.close()
     srv.shutdown()
