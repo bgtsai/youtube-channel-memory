@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Channel Memory
 // @namespace    YouTubeChannelMemory
-// @version      1.3.4
+// @version      1.4.0
 // @description  Per-channel playback speed and subtitle preferences, with audio boost, real-time duration display, start-paused, fullscreen on play / auto-exit near the end, bottom progress bar, hide live chat, and custom language editor.
 // @author       bgtsai
 // @match        https://www.youtube.com/*
@@ -292,6 +292,8 @@
             // Button Templates editor
             btTitle:                 'Button Templates',
             btSubtitle:              'Drag ⠿ to reorder',
+            btSortNote:              'Buttons are sorted by speed (slowest first) when you save.',
+            btDupSpeed:              'Two buttons have the same speed — change or remove one',
             btColLabel:              'Label',
             btColSpeed:              'Speed',
             btBtnAdd:                '+ Add Button',
@@ -419,6 +421,8 @@
             // 速度按鈕範本編輯器
             btTitle:                 '速度按鈕範本',
             btSubtitle:              '拖動 ⠿ 排序',
+            btSortNote:              '存檔時會依速度由小到大自動排序。',
+            btDupSpeed:              '有兩個按鈕的速度相同，請修改或刪除其中一個',
             btColLabel:              '標籤',
             btColSpeed:              '速度',
             btBtnAdd:                '+ 新增按鈕',
@@ -746,6 +750,10 @@
             ? JSON.parse(await GM.getValue("_YSC-" + name, value))
             : await GM.getValue("_YSC-" + name, value));
     }
+    // Speed buttons are always shown in ascending speed order (the editor sorts
+    // on save; lists saved by older versions may still be in any order). The
+    // temporary speed button relies on this order to find its slot.
+    window['BUTTON_TEMPLATES'] = _sortTemplates(window['BUTTON_TEMPLATES']);
 
     // ─────────────────────────────────────────────────────────────────────────
     // CUSTOM LANGUAGE HELPERS
@@ -1130,6 +1138,13 @@
                 display: flex; align-items: center; justify-content: space-between;
             }
             #ysc-bt-editor .bt-hdr-sub { font-size: 16px; color: ${t.groupLbl}; font-weight: 400; }
+            #ysc-bt-editor .bt-note { margin: 6px 14px 0; font-size: 16px; line-height: 1.45; color: ${t.tsDesc}; }
+            #ysc-bt-editor .bt-dup-err {
+                margin: 6px 14px 0; padding: 8px 10px; border-radius: 6px; font-size: 16px; line-height: 1.45;
+                border-left: 3px solid #f5a623; font-weight: 600;
+                background: ${isDark ? 'rgba(245,166,35,0.14)' : 'rgba(245,166,35,0.12)'};
+                color: ${isDark ? '#ffc861' : '#8a5300'};
+            }
             #ysc-bt-editor .bt-col-headers {
                 display: flex; align-items: center;
                 padding: 6px 14px 4px; gap: 8px;
@@ -2303,6 +2318,8 @@
                         <div class="bt-col-del"></div>
                     </div>
                     <div class="bt-list" id="ysc-bt-list"></div>
+                    <div class="bt-note">${LANG.btSortNote}</div>
+                    <div class="bt-dup-err" id="ysc-bt-dup" style="display:none"></div>
                     <div class="bt-add-row">
                         <button class="bt-add-btn" id="ysc-bt-add">
                             <span style="font-size:18px;line-height:1">+</span> ${LANG.btBtnAdd.replace('+ ', '')}
@@ -2351,7 +2368,14 @@
                     if (label && !isNaN(speed)) result.push([label, speed]);
                 });
                 if (result.length === 0) return;
-                cur['BUTTON_TEMPLATES'] = result;
+                // Two buttons with one speed make no sense (which one is selected?).
+                const dup = result.some((a, i) => result.some((b, j) => j < i && _sameRate(a[1], b[1])));
+                const err = document.getElementById('ysc-bt-dup');
+                if (dup) { err.textContent = LANG.btDupSpeed; err.style.display = 'block'; return; }
+                err.style.display = 'none';
+                // Always stored in ascending speed order, whatever order the rows
+                // were dragged into (the temporary speed button needs the order).
+                cur['BUTTON_TEMPLATES'] = _sortTemplates(result);
                 btOverlay.remove();
                 refreshContainers();
             });
@@ -3104,17 +3128,13 @@
         const rate   = parseFloat(btn.attr('ycm-speed'));
         const vidSel = 'video[ycm-video="' + slot + '"]';
 
-        // Move the selection highlight (and ycm-sel marker, read by
-        // refreshContainers) from every speed button to the clicked one.
-        btn.parent().children('span[ycm-speed]').css('color', COLOR_NORMAL).removeAttr('ycm-sel');
-        btn.css('color', COLOR_SELECTED).attr('ycm-sel', 'true');
-
+        const bar = evt.target.parentNode;
         if (!$(vidSel).length) rewireMonitoredPlayers();
 
         const vid = $(vidSel)[0];
         try {
-            vid.playbackRate = rate;
-            vid.dataset.ycmTargetSpeed = rate;   // keeps the speed guardian in sync
+            _setRate(vid, rate);                 // also keeps the speed guardian in sync
+            syncSpeedButtons(bar, rate);         // ratechange does this too; do it now for instant feedback
         } catch (err) {
             console.log('YSC: onSpeedButtonClick failed, retrying', evt, err);
             setTimeout(() => onSpeedButtonClick(evt), 1000);
@@ -4091,6 +4111,64 @@
         updateBookmarkState(el.id.replace('ycm-bar', ''));
     }
 
+    /** Copy of a [label, speed][] list sorted by ascending speed. */
+    function _sortTemplates(list) {
+        return Array.isArray(list) ? list.slice().sort((a, b) => a[1] - b[1]) : list;
+    }
+
+    /** Speeds equal within this tolerance count as the same button. */
+    const RATE_EPS = 1e-3;
+    const _sameRate = (a, b) => Math.abs(a - b) < RATE_EPS;
+
+    /** Label for a speed that has no button: "1.15x" (at most two decimals). */
+    const _tempSpeedLabel = rate => (Math.round(rate * 100) / 100) + 'x';
+
+    /**
+     * Makes the speed buttons show the video's ACTUAL speed, however it was
+     * set (our buttons, YouTube's menu, keyboard shortcuts).
+     *  - a button with this speed exists → it is the selected one;
+     *  - none exists → one temporary button with this speed is inserted at its
+     *    place in the ascending list, looking exactly like the others.
+     * There is never more than one temporary button, and never one whose
+     * speed equals a user button; it is removed when the speed changes.
+     *
+     * @param {Element} bar   The ycm-bar element.
+     * @param {number}  rate  Current playback speed.
+     */
+    function syncSpeedButtons(bar, rate) {
+        if (!bar || isNaN(rate)) return;
+        bar.querySelectorAll('span[ycm-temp]').forEach(t => t.remove());
+        const btns = [...bar.querySelectorAll('span[ycm-speed]')];
+        let hit = null;
+        for (const b of btns) {
+            const on = !hit && _sameRate(parseFloat(b.getAttribute('ycm-speed')), rate);
+            if (on) hit = b;
+            b.style.color = on ? COLOR_SELECTED : COLOR_NORMAL;
+            if (on) b.setAttribute('ycm-sel', 'true'); else b.removeAttribute('ycm-sel');
+        }
+        if (hit || !btns.length) return;
+        const temp = btns[0].cloneNode(false);           // same inline style as a user button
+        temp.setAttribute('ycm-speed', String(rate));
+        temp.setAttribute('ycm-temp', '');
+        temp.setAttribute('ycm-sel', 'true');
+        temp.style.color = COLOR_SELECTED;
+        temp.textContent = _tempSpeedLabel(rate);
+        temp.addEventListener('click', onSpeedButtonClick);
+        const after = btns.find(b => parseFloat(b.getAttribute('ycm-speed')) > rate);
+        if (after) after.before(temp); else btns[btns.length - 1].after(temp);
+    }
+
+    /**
+     * Sets a video's speed from our own code. The target is written first, so
+     * the ratechange that follows is recognised as ours (see the ratechange
+     * listener) and the speed guardian keeps this speed.
+     */
+    function _setRate(video, rate) {
+        if (!video) return;
+        video.dataset.ycmTargetSpeed = rate;
+        video.playbackRate = rate;
+    }
+
     /** Button label for a rate from BUTTON_TEMPLATES, or "<rate>x". */
     function _speedLabel(rate) {
         const hit = BUTTON_TEMPLATES.find(([, r]) => r === rate);
@@ -4321,8 +4399,9 @@
 
         // Speed buttons: one per BUTTON_TEMPLATES entry.
         const speedBtns = BUTTON_TEMPLATES.map(([label, rate]) =>
-            add(btnStyle(curspeed === rate ? COLOR_SELECTED : COLOR_NORMAL), { 'ycm-speed': rate }, label));
+            add(btnStyle(COLOR_NORMAL), { 'ycm-speed': rate }, label));
         speedBtns.forEach(b => b.addEventListener('click', onSpeedButtonClick));
+        syncSpeedButtons(box, curspeed);
 
         // Bookmark: saves current speed + captions; shows saved / changed state.
         const bookmark = document.createElement('span');
@@ -4528,12 +4607,12 @@
             const old = this;
             const id  = old.id.replace('ycm-bar', '');
 
-            // Snapshot the selected speed (ycm-sel, set by onSpeedButtonClick).
+            // The video's actual speed is the truth (it may have been set by
+            // YouTube's menu or keyboard, or be a temporary speed).
+            const video    = document.querySelector('video[ycm-video="' + id + '"]');
             const selBtn   = old.querySelector('span[ycm-sel="true"]');
-            const firstBtn = old.querySelector('span[ycm-speed]');
-            const curspeed = selBtn
-                ? parseFloat(selBtn.getAttribute('ycm-speed'))
-                : (parseFloat(firstBtn && firstBtn.getAttribute('ycm-speed')) || 1);
+            const curspeed = video ? video.playbackRate
+                : (selBtn ? parseFloat(selBtn.getAttribute('ycm-speed')) : 1);
 
             // Rebuild with new settings, carrying over the state attributes.
             const newDiv = buildControlBar(curspeed, id);
@@ -4615,7 +4694,7 @@
             const slot = bar[0].id.replace('ycm-bar', '');
             const vid  = () => $('video[ycm-video="' + slot + '"]')[0];
             const applyRate = rate => {
-                if (!$('span[ycm-speed="' + rate + '"]', bar).click().length) vid().playbackRate = rate;
+                if (!$('span[ycm-speed="' + rate + '"]', bar).click().length) _setRate(vid(), rate);
             };
             let chDiv = $('#channel-name[ycm-channel="' + slot + '"]');
 
@@ -4679,12 +4758,12 @@
             const slot  = rec.target.getAttribute('ycm-video');
             const chDiv = $('#channel-name[ycm-channel="' + slot + '"]');
             const vid   = () => $('video[ycm-video="' + slot + '"]')[0];
-            vid().playbackRate = 1;
+            _setRate(vid(), 1);
             setTimeout(async () => {
                 const credits = readChannelCredits(slot, chDiv, true);
                 const isMusic = chDiv.find('.badge-style-type-verified-artist').length === 1;
                 const [rate]  = await resolveChannelSpeed({ channel: credits, defspeed: isMusic ? 1 : null });
-                vid().playbackRate = rate;
+                _setRate(vid(), rate);
                 applySavedCaptions(slot, credits);
             }, 1000);
         }
@@ -4705,7 +4784,20 @@
         }
         videoEl.addEventListener('ratechange', () => {
             const slot = videoEl.getAttribute('ycm-video');
-            if (slot !== null) updateBookmarkState(slot);
+            const rate = videoEl.playbackRate;
+            const target = parseFloat(videoEl.dataset.ycmTargetSpeed);
+            // A change we did not make: right after a real click/key press it is
+            // the user (YouTube's speed menu, Shift+< / >) → adopt it as the
+            // target so the speed guardian and re-applies keep it. Without user
+            // input it is YouTube resetting the speed → leave the target; the
+            // guardian restores it while it runs.
+            if (!_sameRate(rate, target) && performance.now() - _lastUserInput < 1500) {
+                videoEl.dataset.ycmTargetSpeed = rate;
+            }
+            if (slot !== null) {
+                syncSpeedButtons(document.getElementById('ycm-bar' + slot), rate);
+                updateBookmarkState(slot);
+            }
         }, false);
         videoEl.addEventListener('timeupdate', () => {
             const left = videoEl.duration - videoEl.currentTime;
@@ -4938,8 +5030,7 @@
                 controls.prepend(bar);
                 updateSetButtonTooltip(slot, name);
 
-                vEl.playbackRate = rate;
-                vEl.dataset.ycmTargetSpeed = rate;   // updated by onSpeedButtonClick
+                _setRate(vEl, rate);                 // target updated by our buttons and by user speed changes
 
                 // Speed guardian: YouTube sometimes resets the rate shortly after
                 // load. For ~10 s, restore the target rate if it drifts.
@@ -4968,7 +5059,7 @@
 
                 const credits = readChannelCredits(-1, chDiv, true);
                 const [rate] = await resolveChannelSpeed({ channel: credits, defspeed: musicBadge(chDiv) === 1 ? 1 : null });
-                vWrap[0].playbackRate = rate;
+                _setRate(vWrap[0], rate);
                 applySavedCaptions(slot, credits);
             }
         });

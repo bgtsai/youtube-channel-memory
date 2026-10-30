@@ -22,6 +22,8 @@ From left to right: **speed buttons → bookmark → caption group (pill + capti
 
 Click a speed to apply it. The current speed is highlighted; the speed saved for this channel is <u>underlined</u>. Labels, speeds and colors can be changed in the settings.
 
+The highlight always follows the video's real speed, also when you change it with YouTube's own speed menu or keyboard shortcuts (Shift + < / >). A speed that is not in your list appears as one extra button at its place in the list, and disappears when the speed changes again.
+
 ### Bookmark — save this channel's defaults
 
 Clicking the bookmark saves the **current speed and current caption state** for the channel. A short fill-up animation plays and a tooltip confirms what was saved.
@@ -67,7 +69,7 @@ The rounded group holds two separate controls:
 | Playback | Default Speed | Speed for channels without a saved speed |
 | | Audio Boost | Volume gain with a limiter (1 = off) |
 | | Start New Videos Paused | Videos opened in a new tab or by your own click start paused; playlists / autoplay-next keep playing |
-| Speed Buttons | Button Templates | Edit, add, remove and reorder the speed buttons |
+| Speed Buttons | Button Templates | Edit, add and remove the speed buttons; they are sorted by speed when saved, and two buttons cannot share a speed |
 | | Current / Other Speeds | Text colors of the speed buttons (the color picker can be dragged by its top handle) |
 | Language | Interface Language | Auto (follow YouTube), English, 繁體中文 or a custom translation |
 | | Custom Language | Create a translation for any other language |
